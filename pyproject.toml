@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis"
+version = "0.1.0"
+requires-python = ">=3.11"
+# ponytail: fijar versiones cuando haga falta
+dependencies = ["anthropic", "openai", "python-dotenv"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools]
+packages = ["jarvis", "jarvis.llm", "jarvis.tools"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

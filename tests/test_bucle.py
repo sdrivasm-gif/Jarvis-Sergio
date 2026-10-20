@@ -1,0 +1,244 @@
+from types import SimpleNamespace
+
+import pytest
+
+from jarvis.bucle import (
+    SISTEMA,
+    confirmar_por_terminal,
+    conversar,
+    ejecutar_llamada,
+    turno,
+)
+from jarvis.llm import LlamadaHerramienta, Respuesta
+from jarvis.llm.claude import a_formato_anthropic
+from jarvis.llm.falso import ClienteFalso
+
+
+def herramienta(nombre, ejecutar, requiere_confirmacion=False):
+    return SimpleNamespace(
+        NOMBRE=nombre,
+        DESCRIPCION=f"Herramienta {nombre}.",
+        ESQUEMA={"type": "object", "properties": {}, "required": []},
+        requiere_confirmacion=requiere_confirmacion,
+        ejecutar=ejecutar,
+    )
+
+
+def pide(nombre, id_llamada="l1", **argumentos):
+    return Respuesta(llamadas=[LlamadaHerramienta(id_llamada, nombre, argumentos)])
+
+
+def entradas(*textos):
+    """Simula input(): devuelve cada texto y luego lanza EOFError."""
+    pendientes = list(textos)
+
+    def entrada(prompt=""):
+        if not pendientes:
+            raise EOFError
+        valor = pendientes.pop(0)
+        if isinstance(valor, BaseException):
+            raise valor
+        return valor
+
+    return entrada
+
+
+# 17
+def test_turno_solo_texto():
+    cliente = ClienteFalso([Respuesta(texto="Hola, soy Jarvis.")])
+    historial = []
+    assert turno(cliente, historial, {}, "hola") == "Hola, soy Jarvis."
+    assert historial == [
+        {"rol": "usuario", "texto": "hola"},
+        {"rol": "asistente", "texto": "Hola, soy Jarvis.", "llamadas": []},
+    ]
+    assert cliente.recibidos[0]["sistema"] == SISTEMA
+
+
+# 18
+def test_turno_usa_herramienta_y_pasa_el_resultado():
+    herramientas = {"hora": herramienta("hora", lambda: "2026-10-19 10:00")}
+    cliente = ClienteFalso([pide("hora", "l1"), Respuesta(texto="Son las 10.")])
+    historial = []
+    assert turno(cliente, historial, herramientas, "¿qué hora es?") == "Son las 10."
+    resultado = {"rol": "herramienta", "id_llamada": "l1", "resultado": "2026-10-19 10:00"}
+    assert resultado in historial
+    assert cliente.recibidos[1]["mensajes"][-1] == resultado
+    assert cliente.recibidos[0]["herramientas"] == [{
+        "nombre": "hora",
+        "descripcion": "Herramienta hora.",
+        "esquema": {"type": "object", "properties": {}, "required": []},
+    }]
+
+
+# 19
+def test_confirmacion_negada_no_ejecuta_y_afirmada_si():
+    ejecutadas = []
+    borrar = herramienta("borrar", lambda **a: ejecutadas.append(a) or "borrado", requiere_confirmacion=True)
+    llamada = LlamadaHerramienta("l1", "borrar", {"ruta": "x"})
+    vistos = []
+
+    def negar(nombre, argumentos):
+        vistos.append((nombre, argumentos))
+        return False
+
+    resultado = ejecutar_llamada(llamada, {"borrar": borrar}, negar)
+    assert "canceló" in resultado
+    assert ejecutadas == []
+    assert vistos == [("borrar", {"ruta": "x"})]
+
+    assert ejecutar_llamada(llamada, {"borrar": borrar}, lambda n, a: True) == "borrado"
+    assert ejecutadas == [{"ruta": "x"}]
+
+
+def test_sin_confirmacion_requerida_no_pregunta():
+    def no_debe_preguntar(nombre, argumentos):
+        raise AssertionError("no debía pedir confirmación")
+
+    hora = herramienta("hora", lambda: "ahora")
+    assert ejecutar_llamada(LlamadaHerramienta("l1", "hora", {}), {"hora": hora}, no_debe_preguntar) == "ahora"
+
+
+@pytest.mark.parametrize("respuesta, esperado", [
+    ("s", True), ("si", True), ("sí", True), (" S ", True), ("SÍ", True),
+    ("", False), ("n", False), ("no", False), ("yes", False), ("sii", False),
+])
+def test_confirmar_por_terminal(monkeypatch, respuesta, esperado):
+    preguntas = []
+    monkeypatch.setattr("builtins.input", lambda prompt: preguntas.append(prompt) or respuesta)
+    assert confirmar_por_terminal("borrar", {"ruta": "x"}) is esperado
+    assert preguntas == ["¿Ejecutar borrar con {'ruta': 'x'}? [s/N] "]
+
+
+def test_confirmar_por_terminal_con_eof_cancela(monkeypatch):
+    def sin_entrada(prompt):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", sin_entrada)
+    assert confirmar_por_terminal("borrar", {}) is False
+
+
+# 20
+def test_herramienta_desconocida_y_excepcion_dan_error():
+    def falla():
+        raise OSError("disco lleno")
+
+    herramientas = {"falla": herramienta("falla", falla)}
+    assert ejecutar_llamada(LlamadaHerramienta("l1", "nada", {}), herramientas, None) == \
+        "Error: herramienta desconocida 'nada'"
+    assert ejecutar_llamada(LlamadaHerramienta("l2", "falla", {}), herramientas, None) == "Error: disco lleno"
+
+
+def test_argumentos_invalidos_dan_error():
+    hora = herramienta("hora", lambda: "ahora")
+    resultado = ejecutar_llamada(LlamadaHerramienta("l1", "hora", {"inventado": 1}), {"hora": hora}, None)
+    assert resultado.startswith("Error: ")
+
+
+# 21
+def test_tope_de_iteraciones():
+    herramientas = {"hora": herramienta("hora", lambda: "ahora")}
+    cliente = ClienteFalso([pide("hora", f"l{i}") for i in range(10)])
+    resultado = turno(cliente, [], herramientas, "bucle", max_iteraciones=3)
+    assert resultado == "Me detuve: demasiadas llamadas a herramientas seguidas."
+    assert len(cliente.recibidos) == 3
+
+
+# 22
+def test_conversar_responde_y_sale_con_salir():
+    cliente = ClienteFalso([Respuesta(texto="Hola.")])
+    impreso = []
+    conversar(cliente, {}, entrada=entradas("", "hola", "/salir"), salida=impreso.append)
+    assert len(cliente.recibidos) == 1
+    assert impreso == ["jarvis> Hola.", "Hasta luego."]
+
+
+@pytest.mark.parametrize("corte", [EOFError(), KeyboardInterrupt()])
+def test_conversar_sale_sin_traza_con_eof_o_ctrl_c(corte):
+    impreso = []
+    conversar(ClienteFalso([]), {}, entrada=entradas(corte), salida=impreso.append)
+    assert impreso == ["Hasta luego."]
+
+
+def test_conversar_error_del_proveedor_restaura_historial():
+    class ClienteQueFallaUnaVez:
+        def __init__(self):
+            self.recibidos = []
+
+        def responder(self, mensajes, herramientas, sistema):
+            self.recibidos.append(list(mensajes))
+            if len(self.recibidos) == 1:
+                raise ConnectionError("sin red")
+            return Respuesta(texto="ok")
+
+    cliente = ClienteQueFallaUnaVez()
+    impreso = []
+    conversar(cliente, {}, entrada=entradas("uno", "dos"), salida=impreso.append)
+    assert impreso == ["Error del proveedor: ConnectionError: sin red", "jarvis> ok", "Hasta luego."]
+    assert cliente.recibidos[1] == [{"rol": "usuario", "texto": "dos"}]
+
+
+def test_respuesta_vacia_no_rompe_el_historial():
+    cliente = ClienteFalso([Respuesta(), Respuesta(texto="ok")])
+    historial = []
+    assert turno(cliente, historial, {}, "uno") == "(sin respuesta del modelo; prueba de nuevo)"
+    assert turno(cliente, historial, {}, "dos") == "ok"
+    assert all(m["content"] != [] for m in a_formato_anthropic(historial))
+
+
+def test_respuesta_solo_espacios_no_rompe_el_historial():
+    cliente = ClienteFalso([Respuesta(texto="\n\n"), Respuesta(texto="ok")])
+    historial = []
+    assert turno(cliente, historial, {}, "uno") == "(sin respuesta del modelo; prueba de nuevo)"
+    assert turno(cliente, historial, {}, "dos") == "ok"
+    assert all(b["text"].strip() for m in a_formato_anthropic(historial) for b in m["content"] if b["type"] == "text")
+
+
+def test_conversar_avisa_si_el_turno_fallido_ya_ejecuto_herramientas():
+    herramientas = {"hora": herramienta("hora", lambda: "ahora")}
+    # ClienteFalso lanza RuntimeError en la 2.ª llamada al quedarse sin respuestas.
+    cliente = ClienteFalso([pide("hora")])
+    impreso = []
+    conversar(cliente, herramientas, entrada=entradas("hora"), salida=impreso.append)
+    assert impreso[0].startswith("Error del proveedor: RuntimeError")
+    assert "ya se ejecutaron 1" in impreso[1]
+
+
+class ClienteQueTransmite:
+    """Como ClienteClaudeCLI: si `al_texto` existe, el bucle lo rellena y recibe los fragmentos."""
+
+    def __init__(self, fragmentos, falla=False):
+        self.al_texto = None
+        self.fragmentos = fragmentos
+        self.falla = falla
+
+    def responder(self, mensajes, herramientas, sistema):
+        for fragmento in self.fragmentos:
+            self.al_texto(fragmento)
+        if self.falla:
+            raise ConnectionError("se cortó")
+        return Respuesta(texto="".join(self.fragmentos))
+
+
+def test_conversar_muestra_los_fragmentos_sin_repetir_la_respuesta():
+    impreso, fragmentos = [], []
+    conversar(ClienteQueTransmite(["Ho", "la"]), {}, entrada=entradas("hola", "/salir"),
+              salida=impreso.append, fragmento=fragmentos.append)
+    assert fragmentos == ["jarvis> ", "Ho", "la", "\n"]
+    assert impreso == ["Hasta luego."]
+
+
+def test_conversar_cierra_la_linea_si_el_streaming_se_corta():
+    impreso, fragmentos = [], []
+    conversar(ClienteQueTransmite(["Ho"], falla=True), {}, entrada=entradas("hola", "/salir"),
+              salida=impreso.append, fragmento=fragmentos.append)
+    assert fragmentos == ["jarvis> ", "Ho", "\n"]
+    assert impreso == ["Error del proveedor: ConnectionError: se cortó", "Hasta luego."]
+
+
+def test_conversar_imprime_la_respuesta_si_el_cliente_transmite_pero_no_envio_nada():
+    impreso, fragmentos = [], []
+    conversar(ClienteQueTransmite([]), {}, entrada=entradas("hola", "/salir"),
+              salida=impreso.append, fragmento=fragmentos.append)
+    assert fragmentos == []
+    assert impreso == ["jarvis> (sin respuesta del modelo; prueba de nuevo)", "Hasta luego."]

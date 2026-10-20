@@ -24,7 +24,7 @@ Asistente personal por voz y texto, construido por fases con goals de Claude Cod
 | `ligero` | Sonnet · medio | — | estructura, tests simples, README |
 | `verificador` | Sonnet · medio | superpowers (verification-before-completion) | corre pytest y entrega la evidencia literal |
 | `revisor` | Opus 5.5 · alto | ponytail (review) | revisa el diff, solo lectura |
-| `investigador-apps` | Opus 5.5 · alto | REA | investiga cómo abrir o controlar una app (solo fase 2) |
+| `investigador-apps` | Opus 5.5 · alto | REA | investiga cómo controlar una app (solo fase 2, y solo si abrirla por nombre no basta) |
 
 ## Orden de una vuelta
 1. `explorador` mapea lo que ya existe (se omite si el repositorio está vacío).

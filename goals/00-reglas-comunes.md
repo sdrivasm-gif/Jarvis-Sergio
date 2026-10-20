@@ -12,7 +12,7 @@ Cómo usar: abre `claude` dentro de esta carpeta, lee estas reglas y pega el goa
 El evaluador del goal solo juzga lo que aparece en la conversación. No ejecuta comandos ni lee archivos por su cuenta. Por eso cada goal pide pegar la salida real de las pruebas, y para eso existe el subagente `verificador`.
 
 ## Equipo actualizado
-Los goals 02 a 05 se escribieron con el equipo anterior (ligero, pesado, verificador, revisor). Con el equipo actual, el código lo escribe `constructor` y el diseño lo decide `pesado`. Antes de lanzar cada fase, pídele a Claude que reescriba su goal con el equipo de CLAUDE.md, o pídeselo a quien lo redactó. La fase 2 es la única que usa `investigador-apps` (REA).
+El goal 02 ya está reescrito con el equipo actual. Los goals 03 a 05 se escribieron con el equipo anterior (ligero, pesado, verificador, revisor). Con el equipo actual, el código lo escribe `constructor` y el diseño lo decide `pesado`. Antes de lanzar cada fase, pídele a Claude que reescriba su goal con el equipo de CLAUDE.md, o pídeselo a quien lo redactó. La fase 2 es la única que usa `investigador-apps` (REA).
 
 ## Antes de lanzar un goal
 - Estás en una rama de git (`git switch -c fase-N`).
