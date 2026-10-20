@@ -270,7 +270,7 @@ def lanzar(cliente, herramientas: dict, entorno, con_voz: bool = False, mostrar=
     piezas = piezas_ui(sesion)
     if con_voz:
         try:
-            oyente, hablante, palabras = voz.motores(entorno)
+            oyente, hablante, palabras = voz.motores(entorno, sesion.anotar_linea)  # avisos de la voz en la página
             piezas = piezas_ui_voz(sesion, oyente, hablante, palabras)
             aviso = f"Voz activada: di «{palabras[0]}» y tu petición."
             mostrar(aviso)

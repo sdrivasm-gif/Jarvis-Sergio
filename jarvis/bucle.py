@@ -106,11 +106,18 @@ def imprimir_fragmento(texto: str) -> None:
     print(texto, end="", flush=True)
 
 
+def cerrar_turno(fragmento) -> None:
+    fragmento("\n")  # la respuesta ya se mostró; solo se cierra la línea
+    fin = getattr(fragmento, "fin_de_turno", None)
+    if fin is not None:
+        fin()  # p. ej. la voz: dice lo que falta y espera a terminar de sonar (no lanza)
+
+
 def conversar(cliente, herramientas: dict, entrada=input, salida=print,
               confirmar=confirmar_por_terminal, fragmento=imprimir_fragmento, reloj=datetime.now) -> None:
     historial: list[dict] = []  # ponytail: sin límite; recortar cuando crezca
     emitidos: list[str] = []  # fragmentos ya mostrados en el turno actual
-    # sin fragmento (voz) no hay streaming: la respuesta llega entera a salida
+    # sin fragmento no hay streaming: la respuesta llega entera a salida
     if fragmento is not None and hasattr(cliente, "al_texto"):  # el cliente puede transmitir la respuesta según la genera
 
         def al_texto(trozo: str) -> None:
@@ -136,14 +143,14 @@ def conversar(cliente, herramientas: dict, entrada=input, salida=print,
                 else:
                     respuesta = turno(cliente, historial, herramientas, texto, confirmar)
                 if emitidos:
-                    fragmento("\n")  # la respuesta ya se mostró; solo se cierra la línea
+                    cerrar_turno(fragmento)
                 else:
                     salida("jarvis> " + respuesta)
             except Exception as e:
                 ejecutadas = sum(m["rol"] == "herramienta" for m in historial[n:])
                 del historial[n:]  # el turno fallido no queda a medias en el historial
                 if emitidos:
-                    fragmento("\n")  # el streaming se cortó a medias: cerrar la línea antes del error
+                    cerrar_turno(fragmento)  # el streaming se cortó a medias: cerrar la línea antes del error
                 salida(f"Error del proveedor: {type(e).__name__}: {e}")
                 if ejecutadas:
                     salida(f"Ojo: en este turno ya se ejecutaron {ejecutadas} herramienta(s).")

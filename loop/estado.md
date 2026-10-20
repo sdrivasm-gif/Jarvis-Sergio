@@ -1,7 +1,19 @@
 # Estado del bucle
 
 ## Fase actual
-Goal: goals/06-noche-fases-3-a-6.md (fases 3 a 6). Rama `fase-3`. **Todas CERRADAS; ninguna fase BLOQUEADA; ningún push.**
+**Goal: goals/07-voz-rapida.md (fase 7, voz rápida). Rama `voz-rapida`. CERRADO; commit local `Voz rápida` con etiqueta `v0.7-voz` por la sesión principal; nunca push.**
+Diseño: docs/decisiones/007-voz-rapida.md (la especificación está al final de este archivo). Revisor: APROBADO en la 1.ª vuelta (sin críticos); aplicadas sus 2 advertencias (troceado atascado tras bloques de código largos, `ponytail:` de Ctrl+C). Última salida de `pytest -q` (verificador y sesión principal): **468 passed, 2 skipped (los 2 de tests/test_voz_real.py, opcionales), exit 0**, sin claves, red ni audio.
+
+**PENDIENTE PARA SERGIO (fase 7)**
+1. `.env.example` (los agentes no pueden editarlo): añadir al final
+   `# JARVIS_VOZ_MOTOR=edge`, `# JARVIS_VOZ_NOMBRE=es-MX-JorgeNeural`, `# JARVIS_VOZ_VELOCIDAD=+15%`, `# JARVIS_VOZ_TONO=-5Hz`, `# ELEVENLABS_API_KEY=`, `# ELEVENLABS_VOICE_ID=`.
+2. Instalar los extras nuevos: `.venv\Scripts\pip install -e ".[voz]"` (añade edge-tts y numpy). Sin edge-tts Jarvis avisa una vez y habla con SAPI.
+3. Ejecutar `.venv\Scripts\python scripts\medir_voz.py` (y `--motor sapi` para comparar) y pasarme "primer audio" y "total". **No comprobado en este equipo:** que MCI (`mpegvideo`) reproduzca desde un hilo secundario y su latencia, y edge-tts real (no hay red ni audio en los tests). Si MCI falla se oye SAPI con un aviso; el plan B es miniaudio (decisión 007).
+4. Prueba manual: `python -m jarvis --voz` y `--ui --voz` con "Jarvis, ¿qué hora es?", una confirmación por voz ("no" cancela, "sí" crea) y la palabra de activación; desconectar la red debe dar un solo aviso y seguir con la voz de Windows. Probar también que la transcripción ya no da el error de `metadata_errors`.
+5. **Decisiones tuyas:** (a) el streaming real solo existe con `claude-cli`; con `claude`/`openrouter` habla al llegar la respuesta, sintetizando solo la primera frase (darles `al_texto` sería otro goal); (b) privacidad: con edge/ElevenLabs lo que Jarvis dice (también el cuerpo de un correo que confirma) sale a Microsoft/ElevenLabs, `sapi` no envía nada; (c) edge-tts no es una API oficial y puede romperse; sin reintento de edge en la sesión; (d) en la UI el subtítulo aparece al terminar la respuesta; (e) Ctrl+C a mitad de streaming dice las frases ya encoladas antes de "Hasta luego." (`ponytail:`); (f) el revisor sugirió borrar `cortar` público del Protocol/fakes (≈7 líneas, solo lo usa la cola por dentro): no aplicado.
+6. ElevenLabs (opcional, apagado): `JARVIS_VOZ_MOTOR=elevenlabs` con `ELEVENLABS_API_KEY` y `ELEVENLABS_VOICE_ID` en `.env`; REST oficial, sin SDK, modelo `eleven_flash_v2_5`; sin probar con una cuenta real.
+
+Goal anterior: goals/06-noche-fases-3-a-6.md (fases 3 a 6). Rama `fase-3`. **Todas CERRADAS; ninguna fase BLOQUEADA; ningún push.**
 
 | Fase | Revisor | Commit y etiqueta |
 |---|---|---|
@@ -2653,3 +2665,431 @@ Contratos vigentes que la fase 2 usa:
 - **Bucle**: `ejecutar_llamada(llamada, herramientas, confirmar)`. Si la herramienta es desconocida → `"Error: herramienta desconocida '<n>'"`. Si `requiere_confirmacion` y `confirmar` devuelve False → `"El usuario canceló la acción."` sin ejecutar. Si salta una excepción → `"Error: <e>"`. `turno(...)` hace como máximo 5 iteraciones; `conversar(...)` maneja terminal, streaming (`al_texto`) y errores del proveedor. `confirmar_por_terminal` solo acepta s/si/sí.
 - **Proveedor**: `Cliente.responder(mensajes, herramientas, sistema) -> Respuesta(texto, llamadas)`. `crear_cliente(config)` → claude-cli (por defecto, sin clave ni herramientas), claude u openrouter. Historial en formato neutro (`rol`: usuario, asistente, herramienta). `ClienteFalso(respuestas)` guarda lo recibido en `.recibidos`.
 - **Config**: `cargar_config(entorno)` lee `LLM_PROVIDER` (alias `JARVIS_PROVIDER`), `JARVIS_MODEL`, `JARVIS_EFFORT` y las claves `ANTHROPIC_API_KEY` u `OPENROUTER_API_KEY` según el proveedor. `load_dotenv()` solo se llama en `__main__.main()`.
+
+---
+
+# Especificación fase 7 (voz rápida, para ligero y constructor)
+
+Fuente: docs/decisiones/007-voz-rapida.md. Allí está el porqué y aquí, el qué; no se repite. Se mantienen las convenciones de siempre:
+- Nombres en español y `# ponytail: <límite>; <cómo mejorarlo>` en cada atajo.
+- TDD (primero el test que falla).
+- Ningún efecto al importar.
+- Datos de mentira.
+- Los fakes se importan con `from clientes_falsos import ...`.
+
+Reglas propias de esta fase:
+- **`jarvis/habla.py` importa al cargarse:**
+  - de la biblioteca estándar: `asyncio`, `contextlib`, `json`, `os`, `queue`, `re`, `tempfile`, `threading`, `time`, `urllib.error`, `urllib.request`, `pathlib.Path`, `typing`;
+  - de jarvis: `from jarvis import voz` y `from jarvis.bucle import legible`.
+
+  `edge_tts`, `ctypes` y numpy se importan dentro de las funciones. **Usa siempre `voz.ErrorVoz`, `voz.HablanteSAPI` y `voz.partir_frases` en el momento de la llamada; nunca `from jarvis.voz import ...`.** El test 1 de `test_voz.py` recarga `voz`, y una referencia vieja a `ErrorVoz` dejaría de coincidir.
+- **Lo inyectable se resuelve al llamar** (así la guardia lo intercepta): `self.comunicar or edge_tts.Communicate`, `self.pedir or urllib.request.urlopen`, `self.mci or enviar_mci`.
+- **El texto que se dice nunca va en una orden MCI ni en una línea de comandos.**
+- **La clave de ElevenLabs** va solo en la cabecera `xi-api-key`. Ningún mensaje, aviso, `print` ni excepción contiene el valor de una clave: se usa `raise ... from None`.
+- **Hilos:** `daemon=True`, con los nombres `jarvis-sintesis` y `jarvis-reproduccion`.
+- **En los tests:**
+  - Las esperas usan `threading.Event` y `esperar(condicion, tiempo=2.0)`, que sondea cada 10 ms y se define en cada archivo que la usa, como en la fase 6. Nada de `sleep` fijos.
+  - Ningún test escribe fuera de `tmp_path`: la carpeta de audio se pasa como argumento o se cambia con `monkeypatch.setattr(habla, "CARPETA_AUDIO", tmp_path)`.
+
+## Archivos
+
+| Archivo | Quién | Qué |
+|---|---|---|
+| `pyproject.toml` | ligero (PRIMERO) | extra `voz = ["faster-whisper", "sounddevice", "numpy", "edge-tts"]  # ponytail: sin versiones fijadas; fijarlas cuando algo se rompa`. No se toca nada más. |
+| `tests/conftest.py` + `tests/test_guardia.py` | constructor (PRIMERO) | en `sin_efectos_reales`, `monkeypatch.setitem(sys.modules, "edge_tts", None)` y `monkeypatch.setattr("jarvis.habla.enviar_mci", _prohibido)` (antes, un `habla.py` mínimo con `enviar_mci`) |
+| `jarvis/voz.py` + `tests/test_voz.py` | constructor | `pcm_a_float32`, `partir_frases`, `FragmentoDeVoz`, `esperar_sin_fallar`; `entrada_por_voz` espera antes de escuchar; `motores(entorno, mostrar)` usa `habla.crear_hablante`; se borra `wav_en_memoria` |
+| `jarvis/habla.py` + `tests/test_habla.py` | constructor | configuración, `SintetizadorEdge`, `SintetizadorElevenLabs`, `ReproductorMCI`/`enviar_mci`, `HablanteCola`, `crear_hablante` |
+| `jarvis/bucle.py` + `tests/test_bucle.py` | constructor | solo `cerrar_turno(fragmento)` y su uso en los dos `fragmento("\n")` de `conversar` |
+| `jarvis/ui/sesion.py` + `tests/test_ui_sesion.py` | constructor | `HablanteConEstado.encolar/esperar/cortar`; `piezas_ui_voz` con `FragmentoDeVoz` |
+| `jarvis/ui/servidor.py` + `tests/test_main.py` | constructor | `lanzar` llama a `voz.motores(entorno, sesion.anotar_linea)`; la lambda del test acepta `mostrar` |
+| `tests/clientes_falsos.py` | constructor | `HablanteFalso` con `encolar/esperar/cortar`; `ClienteStreamingFalso` |
+| `scripts/medir_voz.py` + `tests/test_medir_voz.py` | constructor | medición (contrato abajo) |
+| `jarvis/README.md` | ligero (al final) | sección "Voz" ampliada |
+| `.env.example` | PENDIENTE PARA SERGIO | texto exacto abajo (los agentes no pueden editarlo) |
+
+No se tocan:
+- `jarvis/__main__.py`: `preparar` ya pasa `mostrar=print`;
+- `jarvis/llm/`: dar `al_texto` a `claude` u `openrouter` queda fuera del goal;
+- `jarvis/tools/`, `jarvis/config.py`, `jarvis/personalidad.md`, `.gitignore` y `.env`.
+
+## jarvis/voz.py (constructor)
+```python
+# fuera: import io y wav_en_memoria (y su test 14)
+MIN_FRASE = 20          # caracteres: las frases más cortas se unen a la siguiente
+MAX_FRASE = 300         # sin cierre, se corta en el último espacio antes de este tope
+ABREVIATURAS = frozenset({"sr", "sra", "srta", "dr", "dra", "ud", "uds", "lic", "ing", "av", "núm", "num",
+                          "pág", "pag", "tel", "aprox", "ej", "etc", "vs", "ee", "uu"})  # "no" NO: «…que no.» cierra frase
+FIN_FRASE = re.compile(r"[.!?…]+[\"'»”)\]]*(?=\s)|\n")
+AVISO_CORTE = CORTE.removeprefix("… ")   # "El resto está en pantalla."
+# ponytail: abreviaturas fijas; si corta mal alguna, añadirla aquí.
+
+def pcm_a_float32(pcm: bytes):
+    """PCM int16 mono a numpy float32 en [-1, 1): faster-whisper lo usa tal cual y no llama a av (decode_audio)."""
+    import numpy as np
+    return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
+
+def transcriptor_whisper(...)   # igual, pero m.transcribe(pcm_a_float32(pcm), <mismos kwargs>)
+
+def partir_frases(texto: str, final: bool = False) -> tuple[list[str], str]:
+    """Frases completas (sin espacios en los bordes) y el resto aún abierto; con final=True no queda resto."""
+```
+Algoritmo de `partir_frases`:
+1. Se parte de `inicio = 0` y se repite:
+   1. Busca el primer límite válido `b`: el `m.end()` de un `FIN_FRASE` posterior a `inicio` que cumpla todo esto:
+      - `len(texto[inicio:b].strip()) >= MIN_FRASE`;
+      - `texto.count("```", inicio, b)` es par (no se corta dentro de un bloque de código);
+      - si la puntuación es exactamente `"."`, la palabra justo antes (`re.search(r"(\w+)$", texto[:m.start()])`) no es una de `ABREVIATURAS` (sin mayúsculas), no tiene una sola letra y no es solo dígitos.
+   2. Si hay `b` y `b - inicio <= MAX_FRASE`: añade `texto[inicio:b].strip()` e `inicio = b`.
+   3. Si no, y `len(texto) - inicio > MAX_FRASE` y `texto.count("```", inicio, inicio + MAX_FRASE)` es par: corta en `texto.rfind(" ", inicio + 1, inicio + MAX_FRASE)`; si no hay espacio, en `inicio + MAX_FRASE`.
+   4. Si no, termina.
+2. Con `final=True`, se añade `texto[inicio:].strip()` (si no está vacío) y se devuelve `(frases, "")`. Si no, `(frases, texto[inicio:])`, sin quitar espacios.
+
+```python
+def esperar_sin_fallar(hablante, mostrar) -> None:
+    try:
+        hablante.esperar()
+    except Exception as e:
+        mostrar(f"(no pude hablar: {e})")
+
+class FragmentoDeVoz:
+    """`fragmento` de conversar en modo voz: dice la respuesta por frases según llega y la muestra entera al acabar."""
+    def __init__(self, hablante, mostrar=print): ...   # partes=[], resto="", hablado=0, cortado=False
+    def __call__(self, trozo: str) -> None:
+        # añade el trozo a self.partes; el 1.er trozo del turno es el prefijo "jarvis> " de conversar: se muestra, no se dice
+        # si no: frases, self.resto = partir_frases(self.resto + trozo); self._encolar(frases)
+    def fin_de_turno(self) -> None:
+        # NUNCA lanza Exception (si no, conversar lo tomaría por un error del proveedor y borraría el turno)
+        # frases, _ = partir_frases(self.resto, final=True); self._encolar(frases)
+        # linea = "".join(self.partes).removesuffix("\n"); reinicia el estado del turno
+        # if linea: self.mostrar(linea)    → p. ej. "jarvis> Hola, señor. ..." (igual que hoy hace salida)
+        # esperar_sin_fallar(self.hablante, self.mostrar)
+    def _encolar(self, frases):
+        # por frase: h = limpiar_para_voz(f); sáltala si está vacía o si self.cortado
+        # si self.hablado + len(h) > MAX_HABLADO: hablante.encolar(AVISO_CORTE); self.cortado = True
+        # si no: self.hablado += len(h) + 1; hablante.encolar(h)
+```
+- **`entrada_por_voz`:** al principio de `entrada()`, antes de `oyente.escuchar()`, llama a `esperar_sin_fallar(hablante, mostrar)` (el micrófono nunca se abre mientras suena Jarvis).
+- **`piezas_de_voz`:** `"fragmento": FragmentoDeVoz(hablante, mostrar)`. Hay que cambiar su docstring.
+- **`Hablante(Protocol)`:** añade `encolar(frase) -> None`, `esperar() -> None` y `cortar() -> None`. `decir` sigue bloqueando hasta terminar.
+- **`motores(entorno, mostrar=print) -> tuple[OyenteLocal, habla.HablanteCola, list[str]]`:** primero `palabras` y `umbral`; luego `from jarvis import habla` (con el comentario `# aquí: habla importa voz`) y `hablante = habla.crear_hablante(entorno, mostrar)`; después el micrófono y el modelo, como hoy. Devuelve `(OyenteLocal(...), hablante, palabras)`.
+- **`preparar(entorno, mostrar=print)`:** llama a `motores(entorno, mostrar)`.
+- **Docstring de la línea 1:** "...habla (edge-tts, ElevenLabs o la voz de Windows: jarvis/habla.py)...".
+
+## jarvis/habla.py (constructor)
+```python
+"""Cómo habla Jarvis: sintetiza cada frase (edge-tts, ElevenLabs o SAPI) y la reproduce mientras prepara la siguiente."""
+MOTORES = ("edge", "sapi", "elevenlabs")
+VOZ_EDGE, VELOCIDAD, TONO = "es-MX-JorgeNeural", "+15%", "-5Hz"
+ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{}?output_format=mp3_44100_128"
+ELEVENLABS_MODELO = "eleven_flash_v2_5"
+TIEMPO_SINTESIS = 10.0       # s por frase; si se pasa, el motor se da por caído
+TROZO_ESPERA = 0.1           # s: esperar() va en trozos para que Ctrl+C entre en Windows
+SONDEO_MCI = 0.05            # s entre consultas de "status ... mode"
+ALIAS_MCI = "jarvis_voz"
+CARPETA_AUDIO = Path(tempfile.gettempdir()) / "jarvis-voz"
+SIN_EDGE = 'Voz: falta edge-tts (pip install -e ".[voz]"); uso la voz de Windows.'
+AVISO_RESPALDO = "Voz: {nombre} falló ({causa}); sigo con la voz de Windows hasta reiniciar Jarvis."
+
+# --- configuración (puras; ErrorVoz con legible(valor), nunca el valor de una clave) ---
+def motor_de(entorno) -> str          # "" → "edge"; strip + casefold; fuera de MOTORES:
+    # "JARVIS_VOZ_MOTOR='{v}' no es válido; usa edge, sapi o elevenlabs."
+def voz_edge_de(entorno) -> tuple[str, str, str]   # (nombre, velocidad, tono); vacío → valor por defecto
+    # nombre ^[A-Za-z0-9-]{5,60}$  → "JARVIS_VOZ_NOMBRE='{v}' no es válido; usa un nombre de voz como es-MX-JorgeNeural."
+    # velocidad ^[+-]\d{1,3}%$     → "JARVIS_VOZ_VELOCIDAD='{v}' no es válido; usa un porcentaje con signo, por ejemplo +15% o -10%."
+    # tono ^[+-]\d{1,3}Hz$         → "JARVIS_VOZ_TONO='{v}' no es válido; usa hercios con signo, por ejemplo -5Hz o +0Hz."
+def elevenlabs_de(entorno) -> tuple[str, str, str] # (clave, id_voz, modelo)
+    # "Falta ELEVENLABS_API_KEY en .env (JARVIS_VOZ_MOTOR=elevenlabs)."
+    # "Falta ELEVENLABS_VOICE_ID en .env (JARVIS_VOZ_MOTOR=elevenlabs)."
+    # id ^[A-Za-z0-9]{10,40}$ → "ELEVENLABS_VOICE_ID no es válido; copia el ID de la voz (solo letras y números)."
+    # modelo: ELEVENLABS_MODEL_ID.strip() o ELEVENLABS_MODELO (va en el JSON: no hace falta validarlo)
+
+# --- archivos temporales (solo audio que dice Jarvis) ---
+def archivo_temporal(carpeta: Path) -> Path      # mkdir(parents, exist_ok); mkstemp(suffix=".mp3", dir=carpeta); cierra el fd
+def borrar(ruta) -> None                         # None no hace nada; unlink(missing_ok=True) dentro de suppress(OSError)
+def limpiar_carpeta(carpeta: Path) -> None       # borra *.mp3 que quedaron de una sesión que se cerró de golpe
+
+class SintetizadorEdge:
+    def __init__(self, nombre, velocidad, tono, carpeta: Path, comunicar=None): ...
+    def __call__(self, frase: str) -> Path:
+        # comunicar = self.comunicar or edge_tts.Communicate (import dentro); ruta = archivo_temporal(carpeta)
+        # asyncio.run(asyncio.wait_for(comunicar(frase, voice=nombre, rate=velocidad, pitch=tono).save(str(ruta)),
+        #                              TIEMPO_SINTESIS))
+        # tamaño 0 → voz.ErrorVoz("edge-tts no devolvió audio."); ante cualquier BaseException: borrar(ruta) y relanzar
+        # ponytail: una conexión nueva por frase (≈100–300 ms); reutilizar un bucle y un websocket si hace falta.
+
+class SintetizadorElevenLabs:
+    def __init__(self, clave, id_voz, modelo, carpeta: Path, pedir=None): ...   # la clave en self._clave
+    def __call__(self, frase: str) -> Path:
+        # Request(ELEVENLABS_URL.format(id_voz), data=json.dumps({"text": frase, "model_id": modelo}).encode("utf-8"),
+        #         headers={"xi-api-key": clave, "Content-Type": "application/json", "Accept": "audio/mpeg"}, method="POST")
+        # with pedir(req, timeout=TIEMPO_SINTESIS) as r: datos = r.read()
+        # HTTPError e → voz.ErrorVoz(f"ElevenLabs respondió {e.code}.") from None
+        # URLError/OSError (incluido el tiempo agotado) → voz.ErrorVoz(f"sin conexión con ElevenLabs ({type(e).__name__}).") from None
+        # sin datos → voz.ErrorVoz("ElevenLabs no devolvió audio."); si no, archivo_temporal + write_bytes
+
+def enviar_mci(comando: str) -> str:
+    # import ctypes; winmm = ctypes.windll.winmm; buffer de 256 caracteres; codigo = winmm.mciSendStringW(comando, buf, 255, None)
+    # codigo != 0 → mciGetErrorStringW y voz.ErrorVoz(f"el reproductor de Windows falló: {texto or codigo}")
+
+class ReproductorMCI:
+    def __init__(self, mci=None): ...
+    def __call__(self, ruta: Path, parar, al_empezar) -> None:
+        # mci = self.mci or enviar_mci; '"' en str(ruta) → voz.ErrorVoz("ruta de audio no válida.") sin llamar a mci
+        # mci(f'open "{ruta}" type mpegvideo alias {ALIAS_MCI}')
+        # try: mci(f"play {ALIAS_MCI}"); al_empezar()
+        #      while mci(f"status {ALIAS_MCI} mode") in ("playing", "seeking"):
+        #          if parar(): mci(f"stop {ALIAS_MCI}"); break
+        #          time.sleep(SONDEO_MCI)
+        # finally: with suppress(Exception): mci(f"close {ALIAS_MCI}")
+
+class HablanteCola:
+    """encolar no bloquea; esperar bloquea hasta que suena todo; decir = trocear + encolar + esperar."""
+    def __init__(self, respaldo, sintetizar=None, reproducir=None, mostrar=print, nombre="sapi"):
+        # sintetizar=None → solo respaldo (modo sapi): nunca crea hilos
+        # estado protegido por self._cond = threading.Condition(): _gen, _pendientes, _no_dichas, _caido, _causa, _avisado
+        # self._frases = queue.Queue()  [(gen, frase)];  self._audios = queue.Queue(maxsize=1)  [(gen, frase, ruta|None)]
+        # self._hilos = []; self.al_empezar = None   (gancho de medir_voz: se llama al empezar a sonar cada audio)
+    def encolar(self, frase: str) -> None:
+        # frase.strip() vacía → nada. Con el cerrojo:
+        #   si sintetizar es None o (self._caido y self._pendientes == 0): _no_dichas.append(frase) y vuelve
+        #   si no: _pendientes += 1; gen = _gen; arranca los hilos si no existen
+        # _frases.put((gen, frase))   (también ya caído si hay algo en curso: así se respeta el orden)
+    def esperar(self) -> None:
+        # try: con el cerrojo, mientras _pendientes > 0: si algún hilo murió → voz.ErrorVoz("la cola de voz se detuvo.");
+        #        _cond.wait(TROZO_ESPERA). Luego toma y vacía _no_dichas; avisar = _caido and not _avisado (y lo marca)
+        #      if avisar: mostrar(AVISO_RESPALDO.format(nombre=self.nombre, causa=self._causa))
+        #      if no_dichas: self.respaldo.decir(" ".join(no_dichas))     # hilo principal: Ctrl+C mata ese PowerShell
+        # except BaseException: self.cortar(); raise
+    def cortar(self) -> None:
+        # con el cerrojo: _gen += 1; _pendientes = 0; _no_dichas.clear(); notify_all. No espera a nadie.
+    def decir(self, texto: str) -> None:
+        # frases, _ = voz.partir_frases(texto, final=True); encolar cada una; self.esperar()
+    # hilo de síntesis: (gen, frase) = _frases.get(); ruta = None
+    #   si gen == _gen y no _caido: try ruta = self.sintetizar(frase) except Exception as e: self._caer(e)
+    #   _audios.put((gen, frase, ruta))                              ← todo pasa por aquí: el orden se conserva
+    # hilo de reproducción: (gen, frase, ruta) = _audios.get(); dicha = False
+    #   try: si gen == _gen y ruta y no _caido:
+    #          try: self.reproducir(ruta, lambda: gen != self._gen, self._empezo); dicha = True
+    #          except Exception as e: self._caer(e)
+    #   finally: borrar(ruta)
+    #   con el cerrojo, si gen == _gen: si no dicha → _no_dichas.append(frase); _pendientes -= 1; notify_all
+    #   (cada vuelta de los dos hilos va dentro de try/except Exception: un hilo nunca muere por una frase)
+    # _caer(e): con el cerrojo, si no _caido: _caido = True;
+    #   _causa = str(e) si es voz.ErrorVoz y si no type(e).__name__
+    # ponytail: sin reintentar el motor caído en toda la sesión; reintentar tras N minutos si hace falta.
+    # ponytail: en respaldo, el resto del turno suena al terminar la respuesta, no al momento.
+
+def crear_hablante(entorno, mostrar=print, carpeta: Path | None = None) -> HablanteCola:
+    # carpeta = carpeta or CARPETA_AUDIO (resuelto al llamar); motor = motor_de(entorno); sapi = voz.HablanteSAPI()
+    # "sapi" → HablanteCola(sapi, nombre="sapi")
+    # "edge" → nombre, velocidad, tono = voz_edge_de(entorno)  (se valida ANTES de importar)
+    #          try: import edge_tts  except ImportError: mostrar(SIN_EDGE); return HablanteCola(sapi, nombre="sapi")
+    #          sint = SintetizadorEdge(nombre, velocidad, tono, carpeta, edge_tts.Communicate); etiqueta = f"edge ({nombre})"
+    # "elevenlabs" → sint = SintetizadorElevenLabs(*elevenlabs_de(entorno), carpeta); etiqueta = "elevenlabs"
+    # limpiar_carpeta(carpeta); return HablanteCola(sapi, sint, ReproductorMCI(), mostrar, etiqueta)
+```
+
+## jarvis/bucle.py (constructor; solo esto)
+```python
+def cerrar_turno(fragmento) -> None:
+    fragmento("\n")  # la respuesta ya se mostró; solo se cierra la línea
+    fin = getattr(fragmento, "fin_de_turno", None)
+    if fin is not None:
+        fin()  # p. ej. la voz: dice lo que falta y espera a terminar de sonar (no lanza)
+```
+- `conversar` sustituye sus dos `fragmento("\n")` por `cerrar_turno(fragmento)`. La firma no cambia.
+- El comentario "sin fragmento (voz) no hay streaming" pasa a decir "sin fragmento no hay streaming: la respuesta llega entera a salida".
+
+## jarvis/ui/sesion.py (constructor)
+`HablanteConEstado` añade estos métodos (todos se llaman desde el hilo de `conversar`):
+- `encolar(frase)`: si `self._anterior is None`, guarda `self._anterior = self.sesion.estado` y pone "hablando"; luego delega.
+- `esperar()`: `try: self.hablante.esperar()`, y en el `finally`, si `_anterior` no es `None`, `poner_estado(_anterior)` y `_anterior = None`.
+- `cortar()`: delega.
+- `decir`: igual que ahora.
+
+`piezas_ui_voz` devuelve `"fragmento": voz.FragmentoDeVoz(hablante, sesion.anotar_linea)`, donde `hablante` ya es el `HablanteConEstado`. `piezas_ui` (sin voz) no cambia: `fragmento=None`.
+- `# ponytail:` el subtítulo aparece entero al terminar la respuesta; para verlo crecer, que `Sesion` permita actualizar un mensaje.
+
+## jarvis/ui/servidor.py (constructor; solo esto)
+En `lanzar`: `oyente, hablante, palabras = voz.motores(entorno, sesion.anotar_linea)`, para que los avisos de la voz salgan en la página.
+
+## tests/clientes_falsos.py (constructor)
+- **`HablanteFalso(falla=None, falla_esperar=None)`:**
+  - `decir`: igual que ahora.
+  - `encolar(frase)`: añade a `self.encolados`.
+  - `esperar()`: `self.esperas += 1`; si hay `falla_esperar`, la lanza.
+  - `cortar()`: `self.cortes += 1`.
+  - Opcional: `registro` (una lista compartida) donde anota `("encolar", f)`, `("esperar",)` y `("decir", t)`, para comprobar el orden con el oyente.
+- **`ClienteStreamingFalso(fragmentos, al_emitir=lambda i: None)`:** `al_texto = None`. `responder` llama, por cada fragmento `i`, a `al_emitir(i)` y luego a `self.al_texto(f)`, y devuelve `Respuesta(texto="".join(fragmentos))`. Guarda `.recibidos`, como `ClienteFalso`.
+
+## scripts/medir_voz.py (constructor)
+```python
+"""Mide la voz: segundos hasta el primer audio y total. Uso: python scripts/medir_voz.py [--motor edge|sapi|elevenlabs] [--frase TEXTO]"""
+# importa argparse, os, sys, time; from dotenv import load_dotenv; from jarvis import habla, voz (como medir_claude_cli.py)
+FRASE_EJEMPLO = ("Buenos días, señor. Hoy tiene tres reuniones y una tarea pendiente. "
+                 "El clima es soleado, con veinticuatro grados. ¿Quiere que le lea el primer correo?")
+
+def medir(hablante, frase: str, reloj=time.perf_counter) -> tuple[float | None, float]:
+    # anterior = hablante.al_empezar; hablante.al_empezar = lambda: marcas.append(reloj()); inicio = reloj()
+    # try: hablante.decir(frase) finally: hablante.al_empezar = anterior
+    # devuelve (marcas[0] - inicio si hay marcas, si no None;  reloj() - inicio)
+
+def main(argv=None) -> int:
+    # argparse: --motor (choices=habla.MOTORES), --frase (default FRASE_EJEMPLO); load_dotenv()
+    # entorno = dict(os.environ); con --motor, entorno["JARVIS_VOZ_MOTOR"] = motor
+    # crear_hablante(entorno, print); un voz.ErrorVoz → stderr "No se pudo preparar la voz: {e}" y return 1
+    # imprime: "motor: {hablante.nombre}"; "primer audio: {x:.2f} s" o "primer audio: n/d (la voz de Windows no lo informa)";
+    #          "total: {y:.2f} s"; return 0
+if __name__ == "__main__": sys.exit(main())
+```
+
+## Tests (constructor, TDD)
+`test_voz.py` (los existentes se ajustan como dice la decisión 007, en "Consecuencias"):
+- **Conversión y transcriptor:**
+  - `test_pcm_a_float32`: con `np = pytest.importorskip("numpy")`, `b"\x00\x80\xff\x7f\x00\x00"` da `[-1.0, 32767/32768, 0.0]` con `dtype float32` y `shape (3,)`; `b""` da `shape (0,)`.
+  - El test 15 (transcriptor) pasa a recibir `audio` como `np.ndarray` float32 de 480 ceros y comprueba los mismos kwargs, con `monkeypatch.setitem(sys.modules, "av", None)`: no se usa `av`.
+  - Se borra el test 14 (`wav_en_memoria`).
+- **`partir_frases`:**
+  - `("Hola, señor. Son las diez y cuarto. Mañana", False)` da `(["Hola, señor. Son las diez y cuarto."], " Mañana")`; con `True` sale además `"Mañana"` y el resto queda en `""`.
+  - `"El Sr. López pagó 3.5 euros en www.example.com hoy mismo. "` da una sola frase.
+  - `"Al final le dije a Ana que no. Ella se fue."` con `True` da las dos frases.
+  - `("Primera frase bastante larga.", False)` da `([], todo)`.
+  - Un bloque de código abierto no se corta. Al cerrarse, sale entero y `limpiar_para_voz` lo convierte en "(código omitido)".
+  - `"- uno\n- dos\n- tres y cuatro cinco seis\nFin"` da `["- uno\n- dos\n- tres y cuatro cinco seis"]` con el resto `"Fin"`.
+  - `"palabra " * 60` corta en ≤ 300 caracteres y en un espacio.
+  - `("", True)` da `([], "")`.
+  - Mismo resultado de una vez que a trozos de 1, 3 y 7 caracteres (más `final=True`) para un texto de ejemplo con Sr., URL, lista y código.
+- **`FragmentoDeVoz`:**
+  - El prefijo no se dice.
+  - Encola las frases limpias en orden mientras llegan, y lo que falta lo encola en `fin_de_turno`.
+  - `mostrar` recibe una sola línea `"jarvis> ..."`.
+  - `esperas == 1`.
+  - Al pasar de `MAX_HABLADO`, lo último encolado es `AVISO_CORTE` y nada más.
+  - Si `esperar` falla, sale "(no pude hablar: …)" sin excepción.
+  - Un segundo turno empieza limpio.
+- **Integración:**
+  - `conversar` con `ClienteStreamingFalso(["Hola, señor, ya lo tengo listo. ", "Son las **diez** y", " cuarto de la mañana.\n", "Adiós y buen día"])` y `piezas_de_voz`.
+  - Cuando se emite el último fragmento, `len(hablante.encolados) >= 1`: empieza a hablar antes de terminar.
+  - `encolados == ["Hola, señor, ya lo tengo listo.", "Son las diez y cuarto de la mañana.", "Adiós y buen día."]`.
+  - `vistos` contiene la línea completa una sola vez. `salida` no repite la respuesta.
+- **`entrada_por_voz`:** con un registro compartido, `esperar` va antes de cada `escuchar`.
+- **`motores` y `preparar`:**
+  - `piezas["fragmento"]` es `FragmentoDeVoz`.
+  - Con el entorno por defecto (la guardia anula `edge_tts`), `motores` devuelve una `habla.HablanteCola` con `sintetizar is None`.
+  - `vistos` incluye `habla.SIN_EDGE` antes de "Voz activada...".
+- Los tests 21 a 24 siguen pasando sin cambios en lo que comprueban.
+
+`test_habla.py`:
+- **Configuración:**
+  - Valores por defecto: `motor_de({}) == "edge"` y `voz_edge_de({}) == ("es-MX-JorgeNeural", "+15%", "-5Hz")`.
+  - `" SAPI "` da `"sapi"`, y `"piper"` da `ErrorVoz` con el mensaje exacto.
+  - Velocidades `"15%"`, `"+15"` y `"rápido"` dan error; `"-10%"` vale.
+  - Tonos `"-5"` y `"5Hz"` dan error; `"+0Hz"` vale.
+  - Un nombre con `'` o `<` da error.
+  - ElevenLabs:
+    - sin clave, el mensaje nombra `ELEVENLABS_API_KEY`;
+    - sin voz, nombra `ELEVENLABS_VOICE_ID`;
+    - con el id `"../x"`, da error;
+    - la clave `"clave-de-mentira-123"` no aparece en ningún mensaje.
+- **`crear_hablante`** (con `carpeta=tmp_path`):
+  - `sapi` da una `HablanteCola` sin `sintetizar` y sin hilos.
+  - `edge` sin `edge_tts` avisa con `SIN_EDGE` una vez y queda solo con SAPI.
+  - `edge` con un módulo falso `edge_tts` da un `SintetizadorEdge` con la voz, la velocidad y el tono, y `nombre == "edge (es-MX-JorgeNeural)"`.
+  - `elevenlabs` con la clave y la voz da un `SintetizadorElevenLabs`.
+  - Se borra un `viejo.mp3` que había en `tmp_path`.
+- **`SintetizadorEdge`** (con `comunicar` falso cuyo `save` es async):
+  - Llama a `comunicar(frase, voice=, rate=, pitch=)` y escribe en `tmp_path`.
+  - Un audio vacío da `ErrorVoz` y borra el archivo.
+  - Si `TIEMPO_SINTESIS=0.05` y `save` espera con `asyncio.sleep(1)`, salta el `TimeoutError` y no queda archivo.
+- **`SintetizadorElevenLabs`** (con `pedir` falso):
+  - La URL es exacta, con `output_format`. La clave está solo en `req.get_header("Xi-api-key")` y no en la URL.
+  - El cuerpo JSON lleva `{"text", "model_id"}` y se pasa el `timeout`.
+  - Un 401 da `"ElevenLabs respondió 401."`; un `URLError` da un mensaje sin la clave; `__cause__ is None`.
+  - Sin `pedir`, la guardia lo para.
+- **`ReproductorMCI`** (con `mci` falso que anota y responde `"playing"` dos veces y luego `"stopped"`):
+  - Secuencia exacta: `open "<ruta>" type mpegvideo alias jarvis_voz`, `play`, `status` ×3 y `close`. La frase nunca aparece en ninguna orden.
+  - `al_empezar` se llama una vez.
+  - Si `parar()` da verdadero, manda `stop` y `close`.
+  - Si `play` falla, se manda `close` y el error sube.
+  - Una ruta con `"` da `ErrorVoz` sin ninguna llamada.
+  - `ReproductorMCI()` sin `mci` lo para la guardia.
+- **`HablanteCola`** (con un sintetizador falso que escribe `tmp_path/<n>.mp3` y un reproductor falso controlados con `Event`):
+  1. **Orden:** `decir` de dos frases las reproduce en orden; al volver ya no queda ningún `.mp3`.
+  2. **Prefetch:** con el reproductor bloqueado en la frase 1, se llega a sintetizar la frase 2 antes de liberarlo.
+  3. **`esperar` bloquea:** con `esperar` en un hilo, no termina hasta liberar el reproductor.
+  4. **Respaldo por síntesis:** si falla la frase 2 de tres, el respaldo (`HablanteFalso`) dice `"frase 2 frase 3"` en una sola llamada. El aviso sale exactamente una vez, también tras un segundo `decir`, que ya no llama al sintetizador y lo dice todo con el respaldo.
+  5. **Respaldo por reproducción:** si falla el reproductor, el respaldo dice esa frase y sale el aviso.
+  6. **`cortar`:** con la frase 1 sonando, `parar()` pasa a verdadero, la frase 2 nunca suena, no quedan archivos y un `decir` posterior funciona.
+  7. **Ctrl+C:** si el respaldo lanza `KeyboardInterrupt`, se relanza y la generación sube (se cortó).
+  8. **Error del respaldo:** un `ErrorVoz` del respaldo sube desde `esperar`, y el siguiente `decir` funciona.
+  9. **`al_empezar`** se llama al empezar a sonar.
+  10. **Solo SAPI:** `decir("Primera frase de prueba. Segunda frase de prueba.")` hace un solo `respaldo.decir` y `_hilos == []`.
+  11. **Causa del aviso:** si la causa no es un `ErrorVoz`, el aviso solo lleva el nombre del tipo de excepción.
+
+Otros tests:
+- **`test_bucle.py`:** un `fragmento` con `fin_de_turno`, apuntando en un registro compartido. Si el turno va bien, da `["jarvis> ", "Ho", "la", "\n", "FIN"]`. Si falla a mitad, `"FIN"` va antes de "Error del proveedor...". Con `fragmentos.append`, todo queda igual que hoy (los tests existentes, intactos).
+- **`test_ui_sesion.py`:**
+  - `HablanteConEstado.encolar` pone "hablando" y `esperar` restaura el estado anterior, también si `esperar` falla.
+  - `piezas_ui_voz` devuelve un `FragmentoDeVoz`.
+  - `conversar` con `ClienteStreamingFalso` termina con `("jarvis", texto completo)` en los mensajes.
+- **`test_main.py`:** la lambda pasa a `lambda entorno, mostrar=print: (...)`. Se añade una comprobación de que `lanzar` le pasa a `motores` un `mostrar` que es `Sesion.anotar_linea`, con `.__func__`.
+- **`test_medir_voz.py`** (se carga con `importlib.util.spec_from_file_location`, como `test_acceso_directo.py`):
+  - `medir` con un reloj falso (0.0, 0.4, 2.5) y un hablante falso cuyo `decir` llama a `al_empezar` da `(0.4, 2.5)`. Sin `al_empezar`, da `(None, …)`.
+  - `main(["--motor", "sapi"])` con `load_dotenv` y `crear_hablante` cambiados por monkeypatch: el entorno lleva `JARVIS_VOZ_MOTOR=sapi`, se imprimen las tres líneas, y con `ELEVENLABS_API_KEY=clave-de-mentira-123` en el entorno esa clave no aparece en `capsys`.
+  - Un `ErrorVoz` da `return 1`.
+- **`test_guardia.py`:** `import edge_tts` da `ImportError`, y `habla.enviar_mci("play x")` da `AssertionError` con "acción real".
+
+## jarvis/README.md (ligero, al final)
+En "Voz", añadir:
+- motores y variables (`JARVIS_VOZ_MOTOR`, `JARVIS_VOZ_NOMBRE`, `JARVIS_VOZ_VELOCIDAD`, `JARVIS_VOZ_TONO`, ElevenLabs con `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` y `ELEVENLABS_MODEL_ID` opcional);
+- que edge necesita internet y, si falla, Jarvis sigue con la voz de Windows y lo avisa una vez;
+- privacidad: lo que dice Jarvis va a Microsoft o a ElevenLabs, y `sapi` lo evita;
+- los MP3 temporales en `%TEMP%\jarvis-voz\`;
+- `python scripts\medir_voz.py [--motor ...]`;
+- que con `claude-cli` empieza a hablar mientras responde y con `claude` u `openrouter`, al llegar la respuesta.
+
+No pongas claves ni ejemplos con formato de clave.
+
+## .env.example (PENDIENTE PARA SERGIO: añadir al final, tal cual)
+```
+# Voz: motor de texto a voz. edge = voces neurales de Microsoft (internet, sin clave; si falla usa la de Windows),
+# sapi = voz de Windows (local), elevenlabs = de pago (necesita las dos variables de abajo).
+# JARVIS_VOZ_MOTOR=edge
+# JARVIS_VOZ_NOMBRE=es-MX-JorgeNeural
+# JARVIS_VOZ_VELOCIDAD=+15%
+# JARVIS_VOZ_TONO=-5Hz
+ELEVENLABS_API_KEY=
+ELEVENLABS_VOICE_ID=
+# ELEVENLABS_MODEL_ID=eleven_flash_v2_5
+```
+
+## Orden
+1. ligero: `pyproject.toml`.
+2. constructor:
+   1. `habla.py` mínimo con `enviar_mci`, más la guardia en `conftest` y `test_guardia`.
+   2. `pcm_a_float32` y el transcriptor (el arreglo de `av`).
+   3. `partir_frases`.
+   4. `HablanteFalso` y `ClienteStreamingFalso`.
+   5. La configuración de `habla`.
+   6. `HablanteCola` (casos 1 a 11).
+   7. Los sintetizadores y `ReproductorMCI`.
+   8. `crear_hablante`.
+   9. `bucle.cerrar_turno`.
+   10. `FragmentoDeVoz`, `entrada_por_voz`, `piezas_de_voz`, `motores` y `preparar`.
+   11. La UI (`sesion` y `servidor`) y `test_main`.
+   12. `medir_voz.py`.
+3. ligero: README.
+4. verificador.
+5. revisor: `ponytail-review` con revisión de seguridad (claves y comandos).
+
+## Criterios de aceptación (comandos para el verificador, desde la raíz y en esa misma pasada)
+- `.venv\Scripts\python -m pytest -q` termina con exit 0, sin `.env`, sin red y sin audio. Los únicos tests saltados son `test_voz_real` y, si faltara numpy, `test_pcm_a_float32`.
+- `.venv\Scripts\python -m pytest -q -rs tests/test_voz.py -k "float32 or transcriptor"` da PASSED, no SKIPPED: en este `.venv` está numpy.
+- `.venv\Scripts\python -m pytest -q tests/test_habla.py tests/test_medir_voz.py tests/test_bucle.py tests/test_ui_sesion.py` termina con exit 0.
+- `.venv\Scripts\python -c "import sys, jarvis.voz, jarvis.habla; print([m for m in ('numpy','edge_tts','faster_whisper','sounddevice') if m in sys.modules])"` imprime `[]`.
+- `git grep -n -E "wav_en_memoria|metadata_errors|import av" -- jarvis scripts` no devuelve nada.
+- `git grep -n "shell=True" -- jarvis scripts` no devuelve nada. En `habla.py`, el texto de la frase solo llega a `comunicar(...)` y al JSON de ElevenLabs, nunca a `mci(...)` (comprobado en el test).
+- `git grep -n "ELEVENLABS_API_KEY" -- jarvis` solo aparece en `habla.py` (lectura y mensajes) y en el README. `tests/test_sin_claves.py` pasa.
+- `.venv\Scripts\python scripts\medir_voz.py --help` termina con exit 0 y no suena nada.
+- `git diff --stat` solo toca los archivos de la tabla. `jarvis/llm/`, `jarvis/tools/`, `jarvis/__main__.py` y `.env*` no aparecen. Cada atajo lleva su `ponytail:`.
+- Prueba manual (la hace Sergio, no bloquea el goal): `pip install -e ".[voz]"`, `scripts\medir_voz.py` (edge y `--motor sapi`), `python -m jarvis --voz` y `--ui --voz` con "Jarvis, ¿qué hora es?", una confirmación por voz ("no" cancela y "sí" crea) y desconectar la red: se oye la voz de Windows con un solo aviso.

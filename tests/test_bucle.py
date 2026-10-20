@@ -276,6 +276,33 @@ def test_conversar_cierra_la_linea_si_el_streaming_se_corta():
     assert impreso == ["Error del proveedor: ConnectionError: se cortó", "Hasta luego."]
 
 
+class FragmentoConFin:
+    """Como voz.FragmentoDeVoz: además de recibir trozos, sabe cuándo acaba el turno."""
+
+    def __init__(self, registro):
+        self.registro = registro
+
+    def __call__(self, trozo):
+        self.registro.append(trozo)
+
+    def fin_de_turno(self):
+        self.registro.append("FIN")
+
+
+def test_conversar_avisa_el_fin_de_turno():
+    registro = []
+    conversar(ClienteQueTransmite(["Ho", "la"]), {}, entrada=entradas("hola", "/salir"),
+              salida=registro.append, fragmento=FragmentoConFin(registro))
+    assert registro == ["jarvis> ", "Ho", "la", "\n", "FIN", "Hasta luego."]
+
+
+def test_conversar_avisa_el_fin_de_turno_antes_del_error():
+    registro = []
+    conversar(ClienteQueTransmite(["Ho"], falla=True), {}, entrada=entradas("hola", "/salir"),
+              salida=registro.append, fragmento=FragmentoConFin(registro))
+    assert registro == ["jarvis> ", "Ho", "\n", "FIN", "Error del proveedor: ConnectionError: se cortó", "Hasta luego."]
+
+
 def test_conversar_imprime_la_respuesta_si_el_cliente_transmite_pero_no_envio_nada():
     impreso, fragmentos = [], []
     conversar(ClienteQueTransmite([]), {}, entrada=entradas("hola", "/salir"),

@@ -1,11 +1,10 @@
-"""Voz de Jarvis: escucha (faster-whisper local) y habla (voz de Windows). Opcional: sin los extras [voz] Jarvis sigue con texto."""
+"""Voz de Jarvis: escucha (faster-whisper local) y habla (edge-tts, ElevenLabs o la voz de Windows: jarvis/habla.py). Opcional: sin los extras [voz] Jarvis sigue con texto."""
 # Al cargarse solo importa la biblioteca estándar y jarvis.bucle: faster_whisper y sounddevice se importan
 # dentro de las funciones que los usan. Aquí nada escribe en pantalla por su cuenta: lo visible pasa por `mostrar`.
 from __future__ import annotations
 
 import base64
 import contextlib
-import io
 import math
 import re
 import subprocess
@@ -37,6 +36,7 @@ RESPUESTA_ACTIVACION = "¿Sí, señor?"
 PIDE_SI = "Di sí para confirmar; cualquier otra respuesta cancela."
 MAX_HABLADO = 1200
 CORTE = "… El resto está en pantalla."
+AVISO_CORTE = CORTE.removeprefix("… ")   # "El resto está en pantalla."
 POWERSHELL = "powershell.exe"             # Windows PowerShell 5.1 trae System.Speech; pwsh 7 no
 # El script es constante y el texto le llega por stdin en base64: no hay forma de inyectar comandos.
 SCRIPT_SAPI = (
@@ -53,6 +53,12 @@ COMANDO_SAPI = [POWERSHELL, "-NoProfile", "-NonInteractive", "-EncodedCommand",
                 base64.b64encode(SCRIPT_SAPI.encode("utf-16-le")).decode("ascii")]
 FALTAN_DEPENDENCIAS = 'Faltan las dependencias de voz: instálalas con  pip install -e ".[voz]"  (ver jarvis/README.md).'
 URL = re.compile(r"(?:https?://|www\.)[^\s()<>]*[^\s()<>.,;:!?'\"]", re.IGNORECASE)
+MIN_FRASE = 20          # caracteres: las frases más cortas se unen a la siguiente
+MAX_FRASE = 300         # sin cierre, se corta en el último espacio antes de este tope
+# ponytail: abreviaturas fijas; si corta mal alguna, añadirla aquí.
+ABREVIATURAS = frozenset({"sr", "sra", "srta", "dr", "dra", "ud", "uds", "lic", "ing", "av", "núm", "num",
+                          "pág", "pag", "tel", "aprox", "ej", "etc", "vs", "ee", "uu"})  # "no" NO: «…que no.» cierra frase
+FIN_FRASE = re.compile(r"[.!?…]+[\"'»”)\]]*(?=\s)|\n")  # seguido de espacio: no corta URLs ni 3.5
 
 
 class ErrorVoz(Exception):
@@ -65,6 +71,9 @@ class Oyente(Protocol):
 
 class Hablante(Protocol):
     def decir(self, texto: str) -> None: ...    # bloquea hasta terminar de hablar
+    def encolar(self, frase: str) -> None: ...  # no bloquea
+    def esperar(self) -> None: ...              # bloquea hasta que suena todo lo encolado
+    def cortar(self) -> None: ...               # calla y descarta lo encolado
 
 
 # --- texto (puro) ---
@@ -145,6 +154,40 @@ def limpiar_para_voz(texto: str) -> str:
     return hablado
 
 
+def _es_limite(texto: str, inicio: int, m: re.Match) -> bool:
+    if len(texto[inicio:m.end()].strip()) < MIN_FRASE or texto.count("```", inicio, m.end()) % 2:
+        return False
+    if m.group().rstrip("\"'»”)]") == ".":
+        palabra = re.search(r"\w+$", texto[inicio:m.start()])
+        p = palabra.group() if palabra else ""
+        if p and (len(p) == 1 or p.isdigit() or p.casefold() in ABREVIATURAS):
+            return False
+    return True
+
+
+def partir_frases(texto: str, final: bool = False) -> tuple[list[str], str]:
+    """Frases completas (sin espacios en los bordes) y el resto aún abierto; con final=True no queda resto."""
+    frases, inicio = [], 0
+    while True:
+        b = next((m.end() for m in FIN_FRASE.finditer(texto, inicio) if _es_limite(texto, inicio, m)), None)
+        abierto = texto.count("```", inicio, inicio + MAX_FRASE) % 2  # un ``` abierto impide cortar por espacio
+        if b is not None and (b - inicio <= MAX_FRASE or abierto):
+            corte = b
+        elif len(texto) - inicio > MAX_FRASE and not abierto:
+            corte = texto.rfind(" ", inicio + 1, inicio + MAX_FRASE)
+            corte = inicio + MAX_FRASE if corte == -1 else corte
+        else:
+            break
+        if frase := texto[inicio:corte].strip():
+            frases.append(frase)
+        inicio = corte
+    if not final:
+        return frases, texto[inicio:]
+    if resto := texto[inicio:].strip():
+        frases.append(resto)
+    return frases, ""
+
+
 def texto_confirmacion_hablado(nombre: str, argumentos: dict) -> str:
     # Mismo orden y mismo escape que bucle.texto_confirmacion, sin recortar ni quitar URLs: se oye lo que se confirma.
     # ponytail: un cuerpo muy largo se lee entero; si molesta, cortarlo y remitir a la pantalla.
@@ -198,16 +241,11 @@ def recortar_frase(bloques: Iterable[bytes], umbral: int = UMBRAL, espera: int =
     return None if frase is None else b"".join(frase)
 
 
-def wav_en_memoria(pcm: bytes) -> io.BytesIO:
-    """WAV mono de 16 bits a 16 kHz en memoria: el audio nunca toca el disco."""
-    memoria = io.BytesIO()
-    with wave.open(memoria, "wb") as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(FRECUENCIA)
-        w.writeframes(pcm)
-    memoria.seek(0)
-    return memoria
+def pcm_a_float32(pcm: bytes):
+    """PCM int16 mono a numpy float32 en [-1, 1): faster-whisper lo usa tal cual y no llama a av (decode_audio)."""
+    import numpy as np
+
+    return np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
 
 
 # --- motores reales (carga perezosa) ---
@@ -229,7 +267,7 @@ def transcriptor_whisper(modelo: str, palabra: str) -> Callable[[bytes], str]:
 
     def transcribir(pcm: bytes) -> str:
         # ponytail: beam_size=1 por latencia; initial_prompt sesga a "Jarvis" (si da activaciones falsas, quitarlo).
-        segmentos, _ = m.transcribe(wav_en_memoria(pcm), language="es", beam_size=1, vad_filter=True,
+        segmentos, _ = m.transcribe(pcm_a_float32(pcm), language="es", beam_size=1, vad_filter=True,
                                     condition_on_previous_text=False, initial_prompt=palabra.strip().capitalize() + ".")
         return " ".join(s.text.strip() for s in segmentos if s.text.strip())
 
@@ -287,12 +325,64 @@ def decir_sin_fallar(hablante, texto: str, mostrar) -> None:
         mostrar(f"(no pude hablar: {e})")
 
 
+def esperar_sin_fallar(hablante, mostrar) -> None:
+    try:
+        hablante.esperar()
+    except Exception as e:
+        mostrar(f"(no pude hablar: {e})")
+
+
+# ponytail: con Ctrl+C a mitad del streaming se dicen las frases ya encoladas antes de "Hasta luego." y solo
+# un segundo Ctrl+C corta; mejora: llamar a hablante.cortar() al recibir KeyboardInterrupt.
+class FragmentoDeVoz:
+    """`fragmento` de conversar en modo voz: dice la respuesta por frases según llega y la muestra entera al acabar."""
+
+    def __init__(self, hablante, mostrar=print):
+        self.hablante, self.mostrar = hablante, mostrar
+        self._reiniciar()
+
+    def _reiniciar(self) -> None:
+        self.partes: list[str] = []
+        self.resto, self.hablado, self.cortado = "", 0, False
+
+    def __call__(self, trozo: str) -> None:
+        primero = not self.partes
+        self.partes.append(trozo)
+        if primero:
+            return  # el prefijo "jarvis> " de conversar: se muestra, no se dice
+        frases, self.resto = partir_frases(self.resto + trozo)
+        self._encolar(frases)
+
+    def fin_de_turno(self) -> None:
+        # Nunca lanza Exception: conversar lo tomaría por un error del proveedor y borraría el turno.
+        frases, _ = partir_frases(self.resto, final=True)
+        self._encolar(frases)
+        linea = "".join(self.partes).removesuffix("\n")
+        self._reiniciar()
+        if linea:
+            self.mostrar(linea)
+        esperar_sin_fallar(self.hablante, self.mostrar)
+
+    def _encolar(self, frases: list[str]) -> None:
+        for f in frases:
+            h = limpiar_para_voz(f)
+            if not h or self.cortado:
+                continue
+            if self.hablado + len(h) > MAX_HABLADO:  # el tope vale para el turno entero, no por frase
+                self.hablante.encolar(AVISO_CORTE)
+                self.cortado = True
+            else:
+                self.hablado += len(h) + 1
+                self.hablante.encolar(h)
+
+
 def entrada_por_voz(oyente, hablante, palabras: list[str], mostrar=print) -> Callable[[str], str]:
     """Sustituye a input(): solo pasa lo dicho tras la palabra de activación; un silencio devuelve ""."""
     despierto = False
 
     def entrada(prompt: str = "") -> str:
         nonlocal despierto
+        esperar_sin_fallar(hablante, mostrar)  # el micrófono nunca se abre mientras suena Jarvis
         try:
             texto = oyente.escuchar()
         except EOFError:
@@ -350,17 +440,22 @@ def confirmar_por_voz(oyente, hablante, palabras: list[str], mostrar=print) -> C
 
 
 def piezas_de_voz(oyente, hablante, palabras: list[str], mostrar=print) -> dict:
-    """Argumentos para bucle.conversar: sin fragmento (no hay streaming) la respuesta llega entera a salida."""
+    """Argumentos para bucle.conversar: con streaming, FragmentoDeVoz dice la respuesta según llega;
+    sin streaming, la respuesta llega entera a salida."""
     return {"entrada": entrada_por_voz(oyente, hablante, palabras, mostrar),
             "salida": salida_por_voz(hablante, mostrar),
             "confirmar": confirmar_por_voz(oyente, hablante, palabras, mostrar),
-            "fragmento": None}
+            "fragmento": FragmentoDeVoz(hablante, mostrar)}
 
 
-def motores(entorno) -> tuple[OyenteLocal, HablanteSAPI, list[str]]:
-    """Comprueba micrófono y modelo y devuelve (oyente, hablante, palabras); si algo falta, ErrorVoz. No muestra nada."""
+def motores(entorno, mostrar=print) -> tuple[OyenteLocal, habla.HablanteCola, list[str]]:
+    """Comprueba voz, micrófono y modelo y devuelve (OyenteLocal, habla.HablanteCola, palabras); si algo falta,
+    ErrorVoz. Solo muestra (con `mostrar`) los avisos del motor de voz, p. ej. que falta edge-tts."""
     palabras = palabras_activacion(entorno)
     umbral = umbral_de(entorno)
+    from jarvis import habla  # aquí: habla importa voz
+
+    hablante = habla.crear_hablante(entorno, mostrar)
     try:
         import sounddevice as sd
 
@@ -377,11 +472,11 @@ def motores(entorno) -> tuple[OyenteLocal, HablanteSAPI, list[str]]:
         raise ErrorVoz(FALTAN_DEPENDENCIAS) from None
     except Exception as e:
         raise ErrorVoz(f"no pude cargar el modelo de voz a texto: {e}") from None
-    return OyenteLocal(transcribir, umbral=umbral), HablanteSAPI(), palabras
+    return OyenteLocal(transcribir, umbral=umbral), hablante, palabras
 
 
 def preparar(entorno, mostrar=print) -> dict:
-    """Comprueba micrófono y modelo y devuelve las piezas de voz para conversar; si algo falta, ErrorVoz."""
-    oyente, hablante, palabras = motores(entorno)
+    """Comprueba voz, micrófono y modelo y devuelve las piezas de voz para conversar; si algo falta, ErrorVoz."""
+    oyente, hablante, palabras = motores(entorno, mostrar)
     mostrar(f"Voz activada: di «{palabras[0]}» y tu petición. Ctrl+C para salir.")
     return piezas_de_voz(oyente, hablante, palabras, mostrar)

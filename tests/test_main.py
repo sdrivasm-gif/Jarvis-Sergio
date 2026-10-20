@@ -152,11 +152,19 @@ def test_ui_con_voz_sin_dependencias(ui_simulada, monkeypatch, capsys):
 
 
 def test_ui_con_voz_usa_motores(ui_simulada, monkeypatch, capsys):
-    monkeypatch.setattr(voz, "motores", lambda entorno: (OyenteFalso(), HablanteFalso(), ["jarvis"]))
+    mostrados = []
+
+    def motores(entorno, mostrar=print):
+        mostrados.append(mostrar)
+        return OyenteFalso(), HablanteFalso(), ["jarvis"]
+
+    monkeypatch.setattr(voz, "motores", motores)
     assert principal.main(["--ui", "--voz"]) == 0
     assert "Voz activada: di «jarvis»" in capsys.readouterr().out
     [(_, kwargs)] = ui_simulada.llamadas
     assert getattr(kwargs["salida"], "__func__", None) is not Sesion.anotar_linea  # es la salida de voz
+    assert isinstance(kwargs["fragmento"], voz.FragmentoDeVoz)
+    assert mostrados[0].__func__ is Sesion.anotar_linea  # los avisos de la voz salen en la página
 
 
 def test_ui_extremo_a_extremo(ui_simulada, red_local, monkeypatch):

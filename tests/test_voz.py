@@ -12,9 +12,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from clientes_falsos import HablanteFalso, OyenteFalso
+from clientes_falsos import ClienteStreamingFalso, HablanteFalso, OyenteFalso
 
-from jarvis import bucle, recordatorios, voz
+from jarvis import bucle, habla, recordatorios, voz
 from jarvis.llm import LlamadaHerramienta, Respuesta
 from jarvis.llm.falso import ClienteFalso
 
@@ -214,13 +214,18 @@ def test_cierra_el_microfono_tras_cada_escucha():
 
 
 # 14
-def test_wav_en_memoria():
-    with wave.open(voz.wav_en_memoria(b"\x00\x00" * 480)) as w:
-        assert (w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()) == (1, 2, 16000, 480)
+def test_pcm_a_float32():
+    np = pytest.importorskip("numpy")
+    a = voz.pcm_a_float32(b"\x00\x80\xff\x7f\x00\x00")
+    assert a.dtype == np.float32 and a.shape == (3,)
+    assert a.tolist() == [-1.0, pytest.approx(32767 / 32768), 0.0]
+    assert voz.pcm_a_float32(b"").shape == (0,)
 
 
 # 15
 def test_transcriptor_whisper_con_modulo_falso(monkeypatch):
+    np = pytest.importorskip("numpy")
+    monkeypatch.setitem(sys.modules, "av", None)  # faster-whisper no debe decodificar (decode_audio usa av)
     visto = {}
 
     class WhisperModel:
@@ -228,7 +233,7 @@ def test_transcriptor_whisper_con_modulo_falso(monkeypatch):
             visto["modelo"] = (args, kwargs)
 
         def transcribe(self, audio, **kw):
-            visto["audio"], visto["kw"] = audio.read(), kw
+            visto["audio"], visto["kw"] = audio, kw
             return ([SimpleNamespace(text=" Jarvis,"), SimpleNamespace(text="  "),
                      SimpleNamespace(text=" ¿qué hora es? ")], None)
 
@@ -241,7 +246,69 @@ def test_transcriptor_whisper_con_modulo_falso(monkeypatch):
     assert visto["modelo"] == (("base",), {"device": "cpu", "compute_type": "int8"})
     assert visto["kw"] == {"language": "es", "beam_size": 1, "vad_filter": True,
                            "condition_on_previous_text": False, "initial_prompt": "Jarvis."}
-    assert visto["audio"].startswith(b"RIFF")
+    audio = visto["audio"]
+    assert isinstance(audio, np.ndarray) and audio.dtype == np.float32
+    assert audio.shape == (480,) and not audio.any()
+
+
+def test_partir_frases_basico():
+    texto = "Hola, señor. Son las diez y cuarto. Mañana"
+    assert voz.partir_frases(texto) == (["Hola, señor. Son las diez y cuarto."], " Mañana")
+    assert voz.partir_frases(texto, final=True) == (["Hola, señor. Son las diez y cuarto.", "Mañana"], "")
+    assert voz.partir_frases("Primera frase bastante larga.") == ([], "Primera frase bastante larga.")
+    assert voz.partir_frases("", final=True) == ([], "")
+
+
+def test_partir_frases_no_corta_en_abreviaturas_numeros_ni_urls():
+    texto = "El Sr. López pagó 3.5 euros en www.example.com hoy mismo. "
+    assert voz.partir_frases(texto) == (["El Sr. López pagó 3.5 euros en www.example.com hoy mismo."], " ")
+    assert voz.partir_frases("Al final le dije a Ana que no. Ella se fue.", final=True) == (
+        ["Al final le dije a Ana que no.", "Ella se fue."], "")
+
+
+def test_partir_frases_lista_y_codigo():
+    assert voz.partir_frases("- uno\n- dos\n- tres y cuatro cinco seis\nFin") == (
+        ["- uno\n- dos\n- tres y cuatro cinco seis"], "Fin")
+    frases, resto = voz.partir_frases("Mira este código de ejemplo:\n```python\nprint('hola. mundo')\nx = 1\n")
+    assert frases == ["Mira este código de ejemplo:"] and resto.startswith("```python")
+    frases, resto = voz.partir_frases(resto + "```\nY listo")
+    assert frases == ["```python\nprint('hola. mundo')\nx = 1\n```"] and resto == "Y listo"
+    assert voz.limpiar_para_voz(frases[0]) == "(código omitido)."
+
+
+def test_partir_frases_larga_sin_cierre():
+    texto = "palabra " * 60
+    frases, resto = voz.partir_frases(texto)
+    assert len(frases) == 1 and len(frases[0]) <= voz.MAX_FRASE
+    assert texto[len(frases[0])] == " " and frases[0] + resto == texto
+
+
+EJEMPLO = ("Buenos días. El Sr. Pérez llamó a las 9.30 desde www.example.com/agenda. Tareas:\n- uno\n- dos\n"
+           "- comprar pan y leche para mañana\nCódigo:\n```python\nprint('hola. mundo')\n```\n"
+           "¿Algo más, señor? ¡Perfecto, entonces seguimos! Fin del informe…")
+
+
+@pytest.mark.parametrize("n", [1, 3, 7])
+def test_partir_frases_a_trozos_igual_que_de_una_vez(n):
+    frases, resto = [], ""
+    for i in range(0, len(EJEMPLO), n):
+        nuevas, resto = voz.partir_frases(resto + EJEMPLO[i:i + n])
+        frases += nuevas
+    nuevas, resto = voz.partir_frases(resto, final=True)
+    de_una_vez = voz.partir_frases(EJEMPLO, final=True)
+    assert (frases + nuevas, resto) == de_una_vez and len(de_una_vez[0]) >= 4
+
+
+def test_partir_frases_bloque_de_codigo_largo_no_atasca_lo_que_sigue():
+    texto = ("Aquí tienes el script completo:\n```python\n" + "print('línea número de prueba')\n" * 20
+             + "```\nListo, ya puedes ejecutarlo cuando quieras. Avísame si falla algo.")
+    frases, resto = [], ""
+    for i in range(0, len(texto), 7):
+        nuevas, resto = voz.partir_frases(resto + texto[i:i + 7])
+        frases += nuevas
+    assert "Listo, ya puedes ejecutarlo cuando quieras." in frases  # antes de final=True
+    nuevas, resto = voz.partir_frases(resto, final=True)
+    assert (frases + nuevas, resto) == voz.partir_frases(texto, final=True)
 
 
 class StdinFalso(io.BytesIO):
@@ -444,15 +511,98 @@ def test_preparar(monkeypatch):
     _motores_falsos(monkeypatch)
     vistos = []
     piezas = voz.preparar({}, vistos.append)
-    assert set(piezas) == {"entrada", "salida", "confirmar", "fragmento"} and piezas["fragmento"] is None
-    assert vistos == ["Voz activada: di «jarvis» y tu petición. Ctrl+C para salir."]
+    assert set(piezas) == {"entrada", "salida", "confirmar", "fragmento"}
+    assert isinstance(piezas["fragmento"], voz.FragmentoDeVoz)
+    assert vistos == [habla.SIN_EDGE, "Voz activada: di «jarvis» y tu petición. Ctrl+C para salir."]
 
 
 def test_motores(monkeypatch):
     _motores_falsos(monkeypatch)
-    oyente, hablante, palabras = voz.motores({"JARVIS_VOZ_UMBRAL": "800"})
+    vistos = []
+    oyente, hablante, palabras = voz.motores({"JARVIS_VOZ_UMBRAL": "800"}, vistos.append)
     assert isinstance(oyente, voz.OyenteLocal) and oyente.umbral == 800
-    assert isinstance(hablante, voz.HablanteSAPI) and palabras == ["jarvis"]
+    # la guardia anula edge_tts: queda la cola solo con la voz de Windows
+    assert isinstance(hablante, habla.HablanteCola) and hablante.sintetizar is None and palabras == ["jarvis"]
+    assert vistos == [habla.SIN_EDGE]
+
+
+def test_motores_con_motor_invalido(monkeypatch):
+    _motores_falsos(monkeypatch)
+    with pytest.raises(voz.ErrorVoz, match="JARVIS_VOZ_MOTOR='piper' no es válido"):
+        voz.motores({"JARVIS_VOZ_MOTOR": "piper"}, [].append)
+
+
+def _turno_de_voz(fragmento, *trozos):
+    for t in ("jarvis> ",) + trozos:
+        fragmento(t)
+    bucle.cerrar_turno(fragmento)
+
+
+def test_fragmento_de_voz_dice_por_frases_y_muestra_una_linea():
+    vistos, hablante = [], HablanteFalso()
+    f = voz.FragmentoDeVoz(hablante, vistos.append)
+    f("jarvis> ")
+    f("Hola, señor, ya lo tengo **listo**. Son las")
+    assert hablante.encolados == ["Hola, señor, ya lo tengo listo."]  # el prefijo no se dice
+    f(" diez y cuarto")
+    bucle.cerrar_turno(f)
+    assert hablante.encolados == ["Hola, señor, ya lo tengo listo.", "Son las diez y cuarto."]
+    assert vistos == ["jarvis> Hola, señor, ya lo tengo **listo**. Son las diez y cuarto"]
+    assert hablante.esperas == 1
+
+
+def test_fragmento_de_voz_corta_al_pasar_el_tope():
+    hablante = HablanteFalso()
+    _turno_de_voz(voz.FragmentoDeVoz(hablante, [].append), "Esta es una frase de prueba bastante normal. " * 40)
+    assert hablante.encolados[-1] == voz.AVISO_CORTE == "El resto está en pantalla."
+    assert hablante.encolados.count(voz.AVISO_CORTE) == 1
+    assert sum(len(h) + 1 for h in hablante.encolados[:-1]) <= voz.MAX_HABLADO
+
+
+def test_fragmento_de_voz_si_falla_esperar_no_lanza():
+    vistos = []
+    _turno_de_voz(voz.FragmentoDeVoz(HablanteFalso(falla_esperar=voz.ErrorVoz("sin audio")), vistos.append),
+                  "Una respuesta cualquiera.")
+    assert vistos == ["jarvis> Una respuesta cualquiera.", "(no pude hablar: sin audio)"]
+
+
+def test_fragmento_de_voz_segundo_turno_empieza_limpio():
+    vistos, hablante = [], HablanteFalso()
+    f = voz.FragmentoDeVoz(hablante, vistos.append)
+    _turno_de_voz(f, "Esta es una frase de prueba bastante normal. " * 40)
+    hablante.encolados.clear()
+    _turno_de_voz(f, "Segunda respuesta")
+    assert hablante.encolados == ["Segunda respuesta."]
+    assert vistos[-1] == "jarvis> Segunda respuesta" and hablante.esperas == 2
+
+
+def test_conversar_por_voz_con_streaming():
+    vistos, hablante, al_ultimo = [], HablanteFalso(), []
+    trozos = ["Hola, señor, ya lo tengo listo. ", "Son las **diez** y", " cuarto de la mañana.\n", "Adiós y buen día"]
+    cliente = ClienteStreamingFalso(trozos, al_emitir=lambda i: i == 3 and al_ultimo.append(len(hablante.encolados)))
+    bucle.conversar(cliente, {}, reloj=lambda: datetime(2026, 10, 20, 9, 0),
+                    **voz.piezas_de_voz(OyenteFalso("Jarvis, ¿qué hora es?"), hablante, ["jarvis"], vistos.append))
+    assert al_ultimo[0] >= 1  # empezó a hablar antes de que terminara la respuesta
+    assert hablante.encolados == ["Hola, señor, ya lo tengo listo.", "Son las diez y cuarto de la mañana.",
+                                  "Adiós y buen día."]
+    linea = "jarvis> " + "".join(trozos)
+    assert vistos == ["tú (voz)> ¿qué hora es?", linea, "Hasta luego."]
+    assert hablante.dichos == ["Hasta luego."]  # salida no repite la respuesta
+
+
+def test_entrada_por_voz_espera_a_que_calle_antes_de_escuchar():
+    registro = []
+
+    class OyenteRegistrado(OyenteFalso):
+        def escuchar(self):
+            registro.append(("escuchar",))
+            return super().escuchar()
+
+    entrada = voz.entrada_por_voz(OyenteRegistrado("jarvis", "qué hora es"), HablanteFalso(registro=registro),
+                                  ["jarvis"], [].append)
+    assert entrada() == "" and entrada() == "qué hora es"
+    assert registro == [("esperar",), ("escuchar",), ("decir", voz.RESPUESTA_ACTIVACION),
+                        ("esperar",), ("escuchar",)]
 
 
 def _error_de_preparar(entorno=None):

@@ -111,7 +111,7 @@ pip install -e ".[voz]"
 python -m jarvis --voz
 ```
 
-También se activa con `JARVIS_VOZ=on` en `.env`. Escucha con faster-whisper (local, la primera vez descarga el modelo `base`, sin clave) y habla con la voz de Windows. El audio no se guarda ni sale del equipo. Si faltan los extras, el micrófono o el modelo, avisa y sigue con texto.
+También se activa con `JARVIS_VOZ=on` en `.env`. Escucha con faster-whisper (local, la primera vez descarga el modelo `base`, sin clave) y habla con una voz neural (edge-tts por defecto). El audio que tú dices no se guarda ni sale del equipo. Si faltan los extras, el micrófono o el modelo, avisa y sigue con texto.
 
 - Di "Jarvis" y la orden: "Jarvis, ¿qué hora es?". Si solo dices "Jarvis", responde "¿Sí, señor?" y la siguiente frase es la orden. Lo que se oye sin la palabra se descarta.
 - "salir" o "adiós" cierran; "parte del día" equivale a `/hoy`.
@@ -123,6 +123,23 @@ Variables opcionales de `.env`:
 - `JARVIS_PALABRA_ACTIVACION` (por defecto `jarvis`; admite variantes: `jarvis,yarvis`).
 - `JARVIS_STT_MODELO` (`base`, `small`... o una carpeta local).
 - `JARVIS_VOZ_UMBRAL` (sensibilidad del micrófono, 400 por defecto; bájalo si no te detecta).
+- `JARVIS_VOZ_MOTOR`: `edge` (por defecto), `sapi` o `elevenlabs`. Si el motor falla (sin red, sin edge-tts, error de audio), Jarvis avisa una vez y sigue con SAPI el resto de la sesión; ninguna frase se pierde.
+- `JARVIS_VOZ_NOMBRE` (voz de edge; `es-MX-JorgeNeural` por defecto), `JARVIS_VOZ_VELOCIDAD` (`+15%`) y `JARVIS_VOZ_TONO` (`-5Hz`).
+- ElevenLabs (opcional, apagado por defecto): `JARVIS_VOZ_MOTOR=elevenlabs`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID` y, opcional, `ELEVENLABS_MODEL_ID` (`eleven_flash_v2_5`). Van solo en `.env`, nunca en el código.
+
+Un valor inválido desactiva la voz con un mensaje claro (sin mostrar la clave).
+
+Cómo habla: por frases. Mientras suena una, ya se sintetiza la siguiente. El streaming real (empieza a hablar mientras el modelo escribe) solo existe con `claude-cli`; con `claude` u `openrouter` empieza a hablar cuando llega la respuesta completa, sintetizando solo la primera frase antes de sonar. El micrófono no se abre mientras Jarvis habla.
+
+Privacidad: con `edge` o `elevenlabs`, el texto que Jarvis dice (respuestas, avisos y confirmaciones, incluido el cuerpo de un correo que se va a enviar) sale a Microsoft o ElevenLabs para sintetizarse. Con `JARVIS_VOZ_MOTOR=sapi` no se envía nada. Tu audio sigue siendo local. El MP3 de cada frase pasa unos segundos por `%TEMP%\jarvis-voz\` y se borra.
+
+Medir la latencia:
+
+```powershell
+python scripts\medir_voz.py --motor edge --frase "Hola, soy Jarvis."
+```
+
+Imprime `primer audio` y `total` en segundos (con `sapi`, `n/d`). `--motor` y `--frase` son opcionales.
 
 Los WAV de `tests/audio/` salen de `python scripts/generar_audios_prueba.py`.
 
@@ -187,7 +204,7 @@ No necesita clave ni red: los tests usan un cliente simulado.
 - `jarvis/` : bucle (`bucle.py`), configuración (`config.py`) y punto de entrada (`__main__.py`).
 - `jarvis/llm/` : proveedores del modelo (`claude.py`, `openrouter.py`) y un cliente simulado (`falso.py`).
 - `jarvis/tools/` : herramientas que el modelo puede llamar, una por archivo.
-- `jarvis/voz.py` : voz opcional (escuchar y hablar).
+- `jarvis/voz.py` : voz opcional (escuchar y conexión con el bucle); `jarvis/habla.py`: motores de voz, cola de frases y reproducción.
 - `jarvis/ui/` : interfaz HUD (`servidor.py`, `sesion.py` y los estáticos `index.html`, `app.js`, `estilo.css`).
 - `scripts/crear_acceso_directo.py` : crea el acceso directo de la interfaz en el escritorio.
 - `jarvis/integrations/` : clientes de Google (las herramientas siguen en `jarvis/tools/`).

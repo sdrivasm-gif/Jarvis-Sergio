@@ -78,3 +78,12 @@ def test_sin_microfono_ni_altavoz():
         import sounddevice  # noqa: F401
     with pytest.raises(ImportError):
         import pyaudio  # noqa: F401
+
+
+def test_sin_voz_neural_ni_reproductor():
+    with pytest.raises(ImportError):
+        import edge_tts  # noqa: F401
+    from jarvis import habla
+
+    with pytest.raises(AssertionError, match="acción real"):
+        habla.enviar_mci("play x")

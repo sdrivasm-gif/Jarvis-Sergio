@@ -4,9 +4,9 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
-from clientes_falsos import HablanteFalso, OyenteFalso, sin_credenciales
+from clientes_falsos import ClienteStreamingFalso, HablanteFalso, OyenteFalso, sin_credenciales
 
-from jarvis import bucle, recordatorios
+from jarvis import bucle, recordatorios, voz
 from jarvis.integrations import google
 from jarvis.llm import LlamadaHerramienta, Respuesta
 from jarvis.llm.falso import ClienteFalso
@@ -281,6 +281,39 @@ def test_microfono_roto_no_cierra():
     time.sleep(0.05)  # unas vueltas más: conversar sigue vivo con texto
     assert hilo.is_alive()
     terminar(s, hilo)
+
+
+@pytest.mark.parametrize("falla", [None, voz.ErrorVoz("sin audio")])
+def test_hablante_con_estado_habla_hasta_que_termina_de_sonar(falla):
+    s = ui_sesion.Sesion()
+    s.poner_estado("pensando")
+    interno = HablanteFalso(falla_esperar=falla)
+    h = ui_sesion.HablanteConEstado(interno, s)
+    h.encolar("Primera frase.")
+    h.encolar("Segunda frase.")
+    assert s.estado == "hablando" and interno.encolados == ["Primera frase.", "Segunda frase."]
+    if falla:
+        with pytest.raises(voz.ErrorVoz):
+            h.esperar()
+    else:
+        h.esperar()
+    assert s.estado == "pensando" and interno.esperas == 1
+    h.cortar()
+    assert interno.cortes == 1 and s.estado == "pensando"
+
+
+def test_voz_con_pagina_y_streaming():
+    s = ui_sesion.Sesion(espera_entrada=0.01)
+    hablante = HablanteFalso()
+    piezas = ui_sesion.piezas_ui_voz(s, OyenteFalso("Jarvis, ¿qué hora es?"), hablante, ["jarvis"])
+    assert isinstance(piezas["fragmento"], voz.FragmentoDeVoz)
+    cliente = ClienteStreamingFalso(["Son las diez y cuarto, señor. ", "Que tenga buen día"])
+    hilo = conversando(s, cliente, {}, piezas)
+    esperar(lambda: ("sistema", ui_sesion.VOZ_APAGADA) in mensajes(s))
+    terminar(s, hilo)
+    assert ("jarvis", "Son las diez y cuarto, señor. Que tenga buen día") in mensajes(s)
+    assert hablante.encolados == ["Son las diez y cuarto, señor.", "Que tenga buen día."]
+    assert not any(t.startswith("(no pude hablar") for _, t in mensajes(s))
 
 
 # 12

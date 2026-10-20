@@ -171,12 +171,32 @@ class OyenteConEstado:
 
 
 class HablanteConEstado:
+    """Todo se llama desde el hilo de conversar: "hablando" va de la primera frase encolada a que termina de sonar."""
+
     def __init__(self, hablante, sesion: Sesion):
         self.hablante, self.sesion = hablante, sesion
+        self._anterior = None
 
     def decir(self, texto: str) -> None:
         with self.sesion.durante("hablando"):
             self.hablante.decir(texto)
+
+    def encolar(self, frase: str) -> None:
+        if self._anterior is None:
+            self._anterior = self.sesion.estado
+            self.sesion.poner_estado("hablando")
+        self.hablante.encolar(frase)
+
+    def esperar(self) -> None:
+        try:
+            self.hablante.esperar()
+        finally:
+            if self._anterior is not None:
+                self.sesion.poner_estado(self._anterior)
+                self._anterior = None
+
+    def cortar(self) -> None:
+        self.hablante.cortar()
 
 
 def piezas_ui(sesion: Sesion) -> dict:
@@ -212,5 +232,7 @@ def piezas_ui_voz(sesion: Sesion, oyente, hablante, palabras: list[str]) -> dict
             voz.decir_sin_fallar(hablante, CONFIRMA_EN_PANTALLA, sesion.anotar_linea)
         return sesion.confirmar(nombre, argumentos)  # siempre con los botones: nunca se confirma hablando
 
+    # ponytail: el subtítulo aparece entero al terminar la respuesta; para verlo crecer, que Sesion permita
+    #   actualizar un mensaje.
     return {"entrada": entrada, "salida": voz.salida_por_voz(hablante, sesion.anotar_linea),
-            "confirmar": confirmar, "fragmento": None}
+            "confirmar": confirmar, "fragmento": voz.FragmentoDeVoz(hablante, sesion.anotar_linea)}

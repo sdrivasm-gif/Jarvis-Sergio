@@ -1,6 +1,8 @@
-"""Clientes simulados de calendario, correo y Drive: anotan cada acción y nunca salen a la red."""
+"""Clientes simulados (calendario, correo, Drive, voz y modelo): anotan cada acción y nunca salen a la red."""
+import copy
+
 from jarvis import bucle
-from jarvis.llm import LlamadaHerramienta
+from jarvis.llm import LlamadaHerramienta, Respuesta
 
 
 class CalendarioFalso:
@@ -117,13 +119,48 @@ class OyenteFalso:
 
 
 class HablanteFalso:
-    """Hablante simulado: anota lo que diría (nunca suena); con `falla`, lanza esa excepción."""
+    """Hablante simulado: anota lo que diría (nunca suena); con `falla` (en decir) o `falla_esperar`, la lanza.
+    Con `registro` (lista compartida, p. ej. con un oyente) anota el orden: ("encolar", f), ("esperar",), ("decir", t)."""
 
-    def __init__(self, falla: Exception | None = None):
-        self.falla = falla
-        self.dichos = []
+    def __init__(self, falla: BaseException | None = None, falla_esperar: BaseException | None = None,
+                 registro: list | None = None):
+        self.falla, self.falla_esperar = falla, falla_esperar
+        self.registro = registro if registro is not None else []
+        self.dichos, self.encolados = [], []
+        self.esperas = self.cortes = 0
 
     def decir(self, texto):
+        self.registro.append(("decir", texto))
         if self.falla:
             raise self.falla
         self.dichos.append(texto)
+
+    def encolar(self, frase):
+        self.registro.append(("encolar", frase))
+        self.encolados.append(frase)
+
+    def esperar(self):
+        self.registro.append(("esperar",))
+        self.esperas += 1
+        if self.falla_esperar:
+            raise self.falla_esperar
+
+    def cortar(self):
+        self.cortes += 1
+
+
+class ClienteStreamingFalso:
+    """Cliente que transmite: por cada fragmento i llama a al_emitir(i) y luego a al_texto; devuelve el texto entero."""
+
+    def __init__(self, fragmentos, al_emitir=lambda i: None):
+        self.fragmentos, self.al_emitir = list(fragmentos), al_emitir
+        self.al_texto = None
+        self.recibidos = []
+
+    def responder(self, mensajes, herramientas, sistema):
+        self.recibidos.append(copy.deepcopy({"mensajes": mensajes, "herramientas": herramientas, "sistema": sistema}))
+        for i, f in enumerate(self.fragmentos):
+            self.al_emitir(i)
+            if self.al_texto:
+                self.al_texto(f)
+        return Respuesta(texto="".join(self.fragmentos))

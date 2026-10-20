@@ -32,6 +32,8 @@ def sin_efectos_reales(monkeypatch):
     # Ningún test abre el micrófono ni el altavoz: importar estos módulos da ImportError.
     monkeypatch.setitem(sys.modules, "sounddevice", None)
     monkeypatch.setitem(sys.modules, "pyaudio", None)
+    monkeypatch.setitem(sys.modules, "edge_tts", None)  # ni voz neural (red)...
+    monkeypatch.setattr("jarvis.habla.enviar_mci", _prohibido)  # ...ni reproductor de Windows
     monkeypatch.delenv("JARVIS_VOZ", raising=False)  # la voz solo se activa si el test lo pide
     for nombre in ("open", "open_new", "open_new_tab"):  # ningún test abre el navegador
         monkeypatch.setattr(webbrowser, nombre, _prohibido)
