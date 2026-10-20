@@ -82,3 +82,18 @@ def llamar(nombre, modulo, argumentos, confirmar):
 
 def no_debe_preguntar(nombre, argumentos):
     raise AssertionError("no debía pedir confirmación")
+
+
+def entradas(*textos):
+    """Simula input(): devuelve cada texto y luego lanza EOFError."""
+    pendientes = list(textos)
+
+    def entrada(prompt=""):
+        if not pendientes:
+            raise EOFError
+        valor = pendientes.pop(0)
+        if isinstance(valor, BaseException):
+            raise valor
+        return valor
+
+    return entrada

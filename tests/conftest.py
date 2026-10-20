@@ -23,3 +23,9 @@ def sin_efectos_reales(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", _prohibido)
     monkeypatch.setattr(socket.socket, "connect_ex", _prohibido)
     monkeypatch.setattr(http.client.HTTPConnection, "connect", _prohibido)  # HTTPSConnection lo hereda vía super()
+
+
+@pytest.fixture(autouse=True)
+def datos_en_tmp(tmp_path, monkeypatch):
+    """Ningún test lee ni escribe la carpeta datos/ real: JARVIS_DATOS apunta a tmp_path/datos."""
+    monkeypatch.setenv("JARVIS_DATOS", str(tmp_path / "datos"))

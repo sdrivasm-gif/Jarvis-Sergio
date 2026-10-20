@@ -15,8 +15,8 @@ CARPETA_NEUTRA = Path(tempfile.gettempdir()) / "jarvis-claude-cli"
 TIMEOUT = 120  # ponytail: fijo; hacerlo configurable si alguna respuesta tarda más
 # Va tras la personalidad: esta pide usar herramientas y, sin la frase, el modelo podría fingir que las usó.
 SIN_HERRAMIENTAS = ("En esta sesión no tienes herramientas: no puedes consultar la hora, el clima, notas, archivos, "
-                    "aplicaciones, la web, el calendario, el correo ni Drive. "
-                    "Si te piden algo así, dilo en una frase y no finjas haberlo hecho.")
+                    "aplicaciones, la web, el calendario, el correo ni Drive, ni guardar recuerdos ni crear "
+                    "recordatorios. Si te piden algo así, dilo en una frase y no finjas haberlo hecho.")
 
 
 class ClienteClaudeCLI:

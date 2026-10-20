@@ -1,10 +1,13 @@
+import importlib
+import json
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from clientes_falsos import no_debe_preguntar
+from clientes_falsos import entradas, no_debe_preguntar
 
-from jarvis import bucle
+from jarvis import bucle, memoria, recordatorios
 from jarvis.bucle import (
     SISTEMA,
     cargar_sistema,
@@ -32,21 +35,6 @@ def herramienta(nombre, ejecutar, requiere_confirmacion=False, requeridos=()):
 
 def pide(nombre, id_llamada="l1", **argumentos):
     return Respuesta(llamadas=[LlamadaHerramienta(id_llamada, nombre, argumentos)])
-
-
-def entradas(*textos):
-    """Simula input(): devuelve cada texto y luego lanza EOFError."""
-    pendientes = list(textos)
-
-    def entrada(prompt=""):
-        if not pendientes:
-            raise EOFError
-        valor = pendientes.pop(0)
-        if isinstance(valor, BaseException):
-            raise valor
-        return valor
-
-    return entrada
 
 
 # 17
@@ -294,3 +282,68 @@ def test_conversar_imprime_la_respuesta_si_el_cliente_transmite_pero_no_envio_na
               salida=impreso.append, fragmento=fragmentos.append)
     assert fragmentos == []
     assert impreso == ["jarvis> (sin respuesta del modelo; prueba de nuevo)", "Hasta luego."]
+
+
+def test_sistema_completo_sin_recuerdos_es_la_personalidad():
+    assert bucle.sistema_completo() == cargar_sistema()
+
+
+def test_turno_lleva_los_recuerdos_al_sistema():
+    memoria.guardar("prefiere el café", datetime(2026, 10, 20, 9, 0))
+    cliente = ClienteFalso([Respuesta(texto="ok")])
+    turno(cliente, [], {}, "hola")
+    assert cliente.recibidos[0]["sistema"] == cargar_sistema() + "\n\n" + memoria.ENCABEZADO + "\n- [1] prefiere el café"
+
+
+def crear_agua():
+    recordatorios.crear("tomar agua", datetime(2026, 10, 20, 10, 5), datetime(2026, 10, 20, 10, 0))
+
+
+def test_conversar_avisa_un_recordatorio_una_sola_vez():
+    crear_agua()
+    tiempos = iter([datetime(2026, 10, 20, 10, 0), datetime(2026, 10, 20, 10, 6), datetime(2026, 10, 20, 10, 7)])
+    impreso = []
+    conversar(ClienteFalso([Respuesta(texto="ok"), Respuesta(texto="ok")]), {}, entrada=entradas("hola", "otra"),
+              salida=impreso.append, reloj=lambda: next(tiempos))
+    assert impreso == ["jarvis> ok", "jarvis> Recordatorio (2026-10-20 10:05): tomar agua", "jarvis> ok", "Hasta luego."]
+
+
+def test_conversar_avisa_al_arrancar_y_no_repite_tras_reiniciar():
+    crear_agua()
+    for esperado in (["jarvis> Recordatorio (2026-10-20 10:05): tomar agua", "Hasta luego."], ["Hasta luego."]):
+        impreso = []
+        conversar(ClienteFalso([]), {}, entrada=entradas(), salida=impreso.append,
+                  reloj=lambda: datetime(2026, 10, 20, 12, 0))
+        assert impreso == esperado
+        importlib.reload(recordatorios)
+
+
+def test_conversar_recordatorios_danados_no_rompen(tmp_path):
+    archivo = tmp_path / "datos" / "recordatorios.json"
+    archivo.parent.mkdir(parents=True)
+    archivo.write_text("{roto", encoding="utf-8")
+    impreso = []
+    conversar(ClienteFalso([Respuesta(texto="ok")]), {}, entrada=entradas("hola"), salida=impreso.append)
+    e = "Error en los recordatorios: el archivo de datos recordatorios.json está dañado; revísalo o bórralo."
+    assert impreso == [e, "jarvis> ok", e, "Hasta luego."]
+
+
+def escribir_recordatorios(tmp_path, registros):
+    archivo = tmp_path / "datos" / "recordatorios.json"
+    archivo.parent.mkdir(parents=True)
+    archivo.write_text(json.dumps(registros), encoding="utf-8")
+
+
+def test_recordatorio_sin_estado_no_tumba_la_conversacion(tmp_path):
+    escribir_recordatorios(tmp_path, [{"id": 1, "texto": "x", "cuando": "2026-10-20T10:05:00"}])
+    impreso = []
+    conversar(ClienteFalso([Respuesta(texto="ok")]), {}, entrada=entradas("hola"), salida=impreso.append)
+    assert impreso[0].startswith("Error en los recordatorios: ")
+    assert impreso[1:] == ["jarvis> ok", impreso[0], "Hasta luego."]
+
+
+def test_recordatorio_con_cuando_null_no_tumba_el_aviso(tmp_path):
+    escribir_recordatorios(tmp_path, [{"id": 1, "texto": "x", "cuando": None, "estado": "pendiente"}])
+    impreso = []
+    bucle.avisar_vencidos(impreso.append, datetime(2026, 10, 20, 12, 0))
+    assert len(impreso) == 1 and impreso[0].startswith("Error en los recordatorios: ")

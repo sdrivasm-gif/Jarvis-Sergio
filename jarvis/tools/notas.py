@@ -3,6 +3,8 @@ import os
 from datetime import datetime
 from pathlib import Path
 
+from jarvis import secretos
+
 NOMBRE = "notas"
 DESCRIPCION = ("Guarda, lista o busca notas del usuario en un archivo local. "
                "accion='crear' con texto, 'listar', o 'buscar' con texto.")
@@ -18,6 +20,7 @@ requiere_confirmacion = False  # solo escribe dentro de la carpeta de datos
 CARPETA_DATOS_POR_DEFECTO = Path(__file__).resolve().parents[2] / "datos"
 ARCHIVO = "notas.txt"
 MAX_NOTAS = 20
+MAX_CARACTERES = 2000
 
 
 def carpeta_datos() -> Path:
@@ -30,6 +33,11 @@ def ejecutar(accion: str, texto: str = "") -> str:
         limpio = " ".join(texto.split())
         if not limpio:
             return "Error: la nota está vacía."
+        if len(limpio) > MAX_CARACTERES:  # antes del filtro: acota su coste
+            return f"Error: la nota es demasiado larga (máximo {MAX_CARACTERES} caracteres)."
+        tipo = secretos.detectar(limpio)
+        if tipo:
+            return f"Error: {secretos.rechazo(tipo)}"
         ruta.parent.mkdir(parents=True, exist_ok=True)
         with ruta.open("a", encoding="utf-8") as f:
             f.write(f"{datetime.now():%Y-%m-%d %H:%M} | {limpio}\n")

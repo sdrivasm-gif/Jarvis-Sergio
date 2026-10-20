@@ -31,7 +31,7 @@ Nota: el id de modelo por defecto de OpenRouter (`MODELO_OPENROUTER_POR_DEFECTO`
 python -m jarvis
 ```
 
-Sal con `/salir` o Ctrl+C.
+Sal con `/salir` o Ctrl+C. `/hoy` da el parte del día.
 
 ## Herramientas
 
@@ -49,6 +49,15 @@ Sal con `/salir` o Ctrl+C.
   - `correo_enviar`: envía un correo a UNA dirección. Argumentos: `para`, `asunto` (una línea) y `cuerpo`. Pide `[s/N]`.
   - `drive_buscar`: busca archivos por parte del nombre (hasta 10). Argumento: `nombre`.
   - `drive_compartir`: comparte un archivo. Argumentos: `id_archivo` (el que da `drive_buscar`), `correo` y `rol` opcional (`lector` por defecto, o `editor`). Pide `[s/N]`.
+- Memoria y recordatorios (ver las secciones de abajo):
+  - `memoria`: `accion` = `guardar`, `buscar` o `listar`, y `texto`. No pide confirmación.
+  - `memoria_borrar`: borra un recuerdo. Argumentos: `id_recuerdo` y `texto` exacto. Pide `[s/N]`.
+  - `memoria_borrar_todo`: borra todos los recuerdos (sin argumentos). Pide `[s/N]`.
+  - `recordatorios`: `accion` = `crear` o `listar`; para crear, `texto` y `cuando` o `en_minutos`. No pide confirmación.
+  - `recordatorio_cancelar`: cancela un recordatorio pendiente. Argumentos: `id_recordatorio` y `texto` exacto. Pide `[s/N]`.
+  - `parte_del_dia`: devuelve los datos del día (solo lee). No pide confirmación.
+
+Son 19 herramientas. Piden confirmación `[s/N]` 8: `abrir_app`, `calendario_crear`, `calendario_borrar`, `correo_enviar`, `drive_compartir`, `memoria_borrar`, `memoria_borrar_todo` y `recordatorio_cancelar`.
 
 La confirmación muestra un argumento por línea (los de una línea antes que los multilínea, con los caracteres de control escapados). Si falta un argumento obligatorio, no se pregunta nada y se devuelve un error.
 
@@ -64,7 +73,29 @@ Sin estas variables, las herramientas de Google devuelven un error claro. Ningun
 
 Avisos: con la app en modo Testing, Google caduca el refresh token a los 7 días (hay que repetir el paso 4). El scope `drive` da acceso completo. El contenido de los correos y los nombres de archivos llegan al proveedor del modelo. En esta fase "borrar" solo borra eventos del calendario.
 
-`JARVIS_DATOS` (opcional) indica la carpeta donde se guardan los datos locales, como las notas. Por defecto es `datos/` en la raíz del proyecto, y git la ignora.
+## Datos locales
+
+`JARVIS_DATOS` (opcional) indica la carpeta donde se guardan los datos locales (notas, `memoria.json` y `recordatorios.json`). Por defecto es `datos/` en la raíz del proyecto, y git la ignora. Los archivos se leen del disco en cada operación, así que sobreviven a los reinicios.
+
+## Memoria
+
+Guarda lo que le pidas recordar (preferencias, datos personales no sensibles), hasta 500 caracteres, en una sola línea. Un recuerdo repetido no se duplica. Los últimos 20 recuerdos se añaden al prompt del sistema como datos, no como instrucciones, así que funcionan también con `claude-cli`. Eso significa que viajan al proveedor del modelo en cada turno.
+
+Filtro de secretos: nunca guarda claves privadas, claves de API o tokens conocidos, contraseñas etiquetadas ("contraseña: ...", "pin es ...") ni números de tarjeta (13 a 19 dígitos que pasen Luhn). Si lo detecta, rechaza el texto entero y no lo repite en el mensaje. También se aplica a los recordatorios y a `notas crear`. Tiene falsos positivos (rechaza ante la duda) y no detecta contraseñas sueltas sin etiqueta.
+
+Borrar pide confirmación `[s/N]`: `memoria_borrar` necesita el id y el texto exacto del recuerdo (los da `memoria` con `listar` o `buscar`); si el texto no coincide, no borra nada. `memoria_borrar_todo` vacía la memoria entera.
+
+## Recordatorios
+
+`recordatorios` crea con `cuando` (`AAAA-MM-DD HH:MM`, hora local) o con `en_minutos` (1 a 525600), uno de los dos; rechaza horas pasadas. `listar` muestra los pendientes. `recordatorio_cancelar` pide `[s/N]`, el id y el texto exacto.
+
+Cada recordatorio avisa una sola vez. En la terminal el aviso sale cuando se vuelve a mostrar `tú>` (al enviar algo o pulsar Enter), también al arrancar; no interrumpe mientras estás callado. Si venció con Jarvis cerrado, avisa al abrirlo con su hora original.
+
+## Parte del día
+
+`/hoy` en la terminal pide al modelo un resumen corto, con el tono de Jarvis y sin herramientas (funciona con `claude-cli`), de cuatro secciones: eventos de hoy, correos sin leer (hasta 5), las últimas 5 notas y los recordatorios de hoy. No entra en el historial. La herramienta `parte_del_dia` devuelve los mismos datos para que el modelo los resuma en un turno normal.
+
+Si una fuente falla, por ejemplo Google sin configurar, esa sección sale como "No disponible: ..." y el resto sigue.
 
 Con el proveedor por defecto `claude-cli` el modelo NO puede usar herramientas. Para usarlas pon en `.env`:
 

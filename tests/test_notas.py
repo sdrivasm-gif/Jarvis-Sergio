@@ -70,3 +70,16 @@ def test_carpeta_por_defecto_sin_variable(monkeypatch):
 
 def test_no_pide_confirmacion():
     assert notas.requiere_confirmacion is False
+
+
+def test_no_guarda_secretos(datos):
+    assert notas.ejecutar("crear", "la clave del wifi es Perro123") == (
+        "Error: no lo guardo porque parece contener una contraseña; las claves, contraseñas y números de tarjeta "
+        "no se guardan (usa un gestor de contraseñas).")
+    assert not (datos / "notas.txt").exists()
+
+
+def test_nota_demasiado_larga_no_llega_al_filtro(datos, monkeypatch):
+    monkeypatch.setattr(notas.secretos, "detectar", lambda t: pytest.fail("no debía llamar al filtro"))
+    assert notas.ejecutar("crear", "x" * 2001) == "Error: la nota es demasiado larga (máximo 2000 caracteres)."
+    assert not (datos / "notas.txt").exists()

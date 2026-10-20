@@ -1,8 +1,10 @@
 """Bucle de conversación: un turno con herramientas y la conversación en terminal."""
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
+from jarvis import hoy, memoria, recordatorios
 from jarvis.tools import definiciones
 
 # Respaldo si no se puede leer personalidad.md.
@@ -19,6 +21,22 @@ def cargar_sistema() -> str:
         return ARCHIVO_PERSONALIDAD.read_text(encoding="utf-8")  # tal cual, sin strip
     except OSError:
         return SISTEMA
+
+
+def sistema_completo() -> str:
+    # Sin recuerdos, memoria.para_sistema() es "" y el sistema queda igual que personalidad.md.
+    return cargar_sistema() + memoria.para_sistema()
+
+
+def avisar_vencidos(salida, ahora: datetime) -> None:
+    # ponytail: el aviso llega la próxima vez que aparece "tú>", no mientras se espera en input(); las fases 5 y 6
+    # llaman a recordatorios.vencidos desde su bucle de escucha o desde el servidor.
+    try:
+        for r in recordatorios.vencidos(ahora):
+            salida("jarvis> " + recordatorios.aviso(r))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as e:  # un registro editado a mano o roto
+        # ponytail: un registro roto bloquea los avisos de todos; saltarlo dentro de recordatorios.vencidos.
+        salida(f"Error en los recordatorios: {e}")
 
 
 def legible(valor) -> str:
@@ -65,13 +83,13 @@ def ejecutar_llamada(llamada, herramientas, confirmar) -> str:
 def turno(cliente, historial: list[dict], herramientas: dict, texto: str,
           confirmar=confirmar_por_terminal, max_iteraciones: int = MAX_ITERACIONES) -> str:
     historial.append({"rol": "usuario", "texto": texto})
-    sistema = cargar_sistema()
+    sistema = sistema_completo()
     for _ in range(max_iteraciones):
         respuesta = cliente.responder(historial, definiciones(herramientas), sistema)
         if not respuesta.texto.strip() and not respuesta.llamadas:
             # Un mensaje de asistente vacío (o solo espacios) lo rechaza la API en el siguiente turno.
             # ponytail: si ya corrieron herramientas con efectos reales, avisar en vez de "prueba de nuevo".
-            return "(sin respuesta del modelo; prueba de nuevo)"
+            return hoy.SIN_RESPUESTA
         historial.append({"rol": "asistente", "texto": respuesta.texto, "llamadas": respuesta.llamadas})
         if not respuesta.llamadas:
             return respuesta.texto
@@ -89,7 +107,7 @@ def imprimir_fragmento(texto: str) -> None:
 
 
 def conversar(cliente, herramientas: dict, entrada=input, salida=print,
-              confirmar=confirmar_por_terminal, fragmento=imprimir_fragmento) -> None:
+              confirmar=confirmar_por_terminal, fragmento=imprimir_fragmento, reloj=datetime.now) -> None:
     historial: list[dict] = []  # ponytail: sin límite; recortar cuando crezca
     emitidos: list[str] = []  # fragmentos ya mostrados en el turno actual
     if hasattr(cliente, "al_texto"):  # el cliente puede transmitir la respuesta según la genera
@@ -103,6 +121,7 @@ def conversar(cliente, herramientas: dict, entrada=input, salida=print,
         cliente.al_texto = al_texto
     try:
         while True:
+            avisar_vencidos(salida, reloj())  # también al arrancar: avisa de lo que venció con Jarvis cerrado
             texto = entrada("tú> ").strip()
             if texto == "/salir":
                 break
@@ -111,7 +130,10 @@ def conversar(cliente, herramientas: dict, entrada=input, salida=print,
             n = len(historial)
             emitidos.clear()
             try:
-                respuesta = turno(cliente, historial, herramientas, texto, confirmar)
+                if texto == hoy.COMANDO:  # sin herramientas y fuera del historial
+                    respuesta = hoy.parte_del_dia(cliente, sistema_completo(), reloj())
+                else:
+                    respuesta = turno(cliente, historial, herramientas, texto, confirmar)
                 if emitidos:
                     fragmento("\n")  # la respuesta ya se mostró; solo se cierra la línea
                 else:

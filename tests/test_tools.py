@@ -71,6 +71,8 @@ def test_herramientas_y_confirmaciones(monkeypatch):
     herramientas = cargar_herramientas()
     assert sorted(herramientas) == [
         "abrir_app", "buscar_archivos", "buscar_web", "calendario_borrar", "calendario_crear", "calendario_eventos",
-        "clima", "correo_buscar", "correo_enviar", "drive_buscar", "drive_compartir", "hora", "notas"]
+        "clima", "correo_buscar", "correo_enviar", "drive_buscar", "drive_compartir", "hora", "memoria",
+        "memoria_borrar", "memoria_borrar_todo", "notas", "parte_del_dia", "recordatorio_cancelar", "recordatorios"]
     assert {n for n, m in herramientas.items() if m.requiere_confirmacion} == {
-        "abrir_app", "calendario_borrar", "calendario_crear", "correo_enviar", "drive_compartir"}
+        "abrir_app", "calendario_borrar", "calendario_crear", "correo_enviar", "drive_compartir", "memoria_borrar",
+        "memoria_borrar_todo", "recordatorio_cancelar"}
