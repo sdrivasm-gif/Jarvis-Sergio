@@ -93,6 +93,14 @@ def test_cliente_openrouter_con_sdk_simulado():
     assert "tools" not in llamadas[1]
 
 
+@pytest.mark.parametrize("argumentos", ["null", "[]", '"texto"', "3"])
+def test_openrouter_argumentos_que_no_son_objeto_dan_dict_vacio(argumentos):
+    msg = NS(content=None, tool_calls=[NS(id="c1", function=NS(name="hora", arguments=argumentos))])
+    sdk = NS(chat=NS(completions=NS(create=lambda **kw: NS(choices=[NS(message=msg)]))))
+    r = ClienteOpenRouter("falsa", "m1", sdk=sdk).responder(HISTORIAL[:1], [], "sis")
+    assert r.llamadas == [LlamadaHerramienta("c1", "hora", {})]
+
+
 def test_crear_cliente_segun_config():
     c = crear_cliente(NS(proveedor="claude", modelo="m", clave="falsa"))
     assert isinstance(c, ClienteClaude)

@@ -41,6 +41,8 @@ def desde_openai(resp) -> Respuesta:
             args = json.loads(c.function.arguments)
         except json.JSONDecodeError:
             args = {}  # ponytail: JSON inválido se descarta en silencio; avisar al modelo del error
+        if not isinstance(args, dict):  # "null", "[]"...: ejecutar(**args) y el bucle esperan un dict
+            args = {}
         llamadas.append(LlamadaHerramienta(c.id, c.function.name, args))
     return Respuesta(msg.content or "", llamadas)
 

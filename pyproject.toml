@@ -13,7 +13,7 @@ dependencies = ["anthropic", "openai", "python-dotenv"]
 dev = ["pytest"]
 
 [tool.setuptools]
-packages = ["jarvis", "jarvis.llm", "jarvis.tools"]
+packages = ["jarvis", "jarvis.llm", "jarvis.tools", "jarvis.integrations"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

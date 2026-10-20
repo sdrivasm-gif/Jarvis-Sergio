@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from clientes_falsos import no_debe_preguntar
 
 from jarvis import bucle
 from jarvis.bucle import (
@@ -10,6 +11,7 @@ from jarvis.bucle import (
     confirmar_por_terminal,
     conversar,
     ejecutar_llamada,
+    texto_confirmacion,
     turno,
 )
 from jarvis.llm import LlamadaHerramienta, Respuesta
@@ -17,11 +19,12 @@ from jarvis.llm.claude import a_formato_anthropic
 from jarvis.llm.falso import ClienteFalso
 
 
-def herramienta(nombre, ejecutar, requiere_confirmacion=False):
+def herramienta(nombre, ejecutar, requiere_confirmacion=False, requeridos=()):
     return SimpleNamespace(
         NOMBRE=nombre,
         DESCRIPCION=f"Herramienta {nombre}.",
-        ESQUEMA={"type": "object", "properties": {}, "required": []},
+        ESQUEMA={"type": "object", "properties": {k: {"type": "string"} for k in requeridos},
+                 "required": list(requeridos)},
         requiere_confirmacion=requiere_confirmacion,
         ejecutar=ejecutar,
     )
@@ -110,9 +113,6 @@ def test_confirmacion_negada_no_ejecuta_y_afirmada_si():
 
 
 def test_sin_confirmacion_requerida_no_pregunta():
-    def no_debe_preguntar(nombre, argumentos):
-        raise AssertionError("no debía pedir confirmación")
-
     hora = herramienta("hora", lambda: "ahora")
     assert ejecutar_llamada(LlamadaHerramienta("l1", "hora", {}), {"hora": hora}, no_debe_preguntar) == "ahora"
 
@@ -125,7 +125,41 @@ def test_confirmar_por_terminal(monkeypatch, respuesta, esperado):
     preguntas = []
     monkeypatch.setattr("builtins.input", lambda prompt: preguntas.append(prompt) or respuesta)
     assert confirmar_por_terminal("borrar", {"ruta": "x"}) is esperado
-    assert preguntas == ["¿Ejecutar borrar con {'ruta': 'x'}? [s/N] "]
+    assert preguntas == ["¿Ejecutar borrar?\n  ruta: x\n[s/N] "]
+
+
+def test_texto_confirmacion_legible():
+    assert texto_confirmacion("correo_enviar", {"para": "ana@example.com", "cuerpo": "Hola\nAna"}) == \
+        "¿Ejecutar correo_enviar?\n  para: ana@example.com\n  cuerpo: Hola\n    Ana\n[s/N] "
+    assert texto_confirmacion("hora", {}) == "¿Ejecutar hora?\n[s/N] "
+
+
+def test_texto_confirmacion_deja_los_multilinea_al_final():
+    # Un cuerpo largo no debe separar "para" del [s/N].
+    texto = texto_confirmacion("correo_enviar", {"cuerpo": "a\nb", "para": "x@y.com"})
+    assert texto.index("  para:") < texto.index("  cuerpo:")
+
+
+def test_texto_confirmacion_escapa_caracteres_de_control():
+    # Un \x1b[1A o un \r podrían reescribir en la terminal lo que el usuario confirma; U+202E invierte el texto.
+    texto = texto_confirmacion("correo_enviar", {"cuerpo": "a\x1b[1Ab\rc", "para": "x‮@example.com"})
+    assert "\x1b" not in texto and "\r" not in texto and "‮" not in texto
+    assert "  cuerpo: a\\x1b[1Ab\\rc\n" in texto
+    assert "  para: x\\u202e@example.com\n" in texto
+
+
+def test_faltan_argumentos_no_pide_confirmacion_ni_ejecuta():
+    ejecutadas = []
+    enviar = herramienta("enviar", lambda **a: ejecutadas.append(a) or "enviado",
+                         requiere_confirmacion=True, requeridos=("para", "asunto"))
+
+    def llamar(argumentos, confirmar=no_debe_preguntar):
+        return ejecutar_llamada(LlamadaHerramienta("l1", "enviar", argumentos), {"enviar": enviar}, confirmar)
+
+    assert llamar({}) == "Error: faltan argumentos para enviar: para, asunto."
+    assert llamar({"para": "  ", "asunto": "x"}) == "Error: faltan argumentos para enviar: para."
+    assert ejecutadas == []
+    assert llamar({"para": "ana@example.com", "asunto": "x"}, lambda n, a: True) == "enviado"
 
 
 def test_confirmar_por_terminal_con_eof_cancela(monkeypatch):

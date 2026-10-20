@@ -21,10 +21,24 @@ def cargar_sistema() -> str:
         return SISTEMA
 
 
+def legible(valor) -> str:
+    # Los caracteres de control (\x1b, \r) o bidi (U+202E) se muestran escapados: si no, podrían
+    # reescribir en la terminal lo que el usuario cree estar confirmando.
+    return "".join(c if c.isprintable() or c == "\n" else repr(c)[1:-1] for c in str(valor))
+
+
+def texto_confirmacion(nombre: str, argumentos: dict) -> str:
+    # Un argumento por línea y los multilínea sangrados, para leer entero, p. ej., el cuerpo de un correo.
+    # Los multilínea van al final (orden estable) para que un cuerpo largo no separe "para" del [s/N].
+    lineas = "".join("  {}: {}\n".format(legible(k), legible(v).replace("\n", "\n    "))
+                     for k, v in sorted(argumentos.items(), key=lambda kv: "\n" in str(kv[1])))
+    return f"¿Ejecutar {legible(nombre)}?\n{lineas}[s/N] "
+
+
 def confirmar_por_terminal(nombre: str, argumentos: dict) -> bool:
     # ponytail: confirmación solo por terminal; en la fase de voz habrá que inyectar otra función.
     try:
-        respuesta = input(f"¿Ejecutar {nombre} con {argumentos}? [s/N] ")
+        respuesta = input(texto_confirmacion(nombre, argumentos))
     except (EOFError, KeyboardInterrupt):
         return False
     return respuesta.strip().lower() in AFIRMATIVAS
@@ -34,6 +48,11 @@ def ejecutar_llamada(llamada, herramientas, confirmar) -> str:
     modulo = herramientas.get(llamada.nombre)
     if modulo is None:
         return f"Error: herramienta desconocida '{llamada.nombre}'"
+    # Nadie confirma un correo sin destinatario: los obligatorios se exigen antes de preguntar.
+    # ponytail: los formatos (fecha, correo, id) se validan después de confirmar, dentro de cada herramienta.
+    faltan = [k for k in modulo.ESQUEMA.get("required", []) if not str(llamada.argumentos.get(k, "")).strip()]
+    if faltan:
+        return f"Error: faltan argumentos para {llamada.nombre}: {', '.join(faltan)}."
     # Acciones con efectos reales: sin un sí explícito no se ejecuta nada.
     if modulo.requiere_confirmacion and not confirmar(llamada.nombre, llamada.argumentos):
         return "El usuario canceló la acción."

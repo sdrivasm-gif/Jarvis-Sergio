@@ -65,9 +65,12 @@ def test_definiciones_formato_neutro(tmp_path):
     }]
 
 
-def test_cinco_herramientas_y_confirmaciones():
+def test_herramientas_y_confirmaciones(monkeypatch):
+    for variable in ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN"):
+        monkeypatch.delenv(variable, raising=False)  # importar no debe fallar sin ellas
     herramientas = cargar_herramientas()
-    assert sorted(herramientas) == ["abrir_app", "buscar_archivos", "buscar_web", "hora", "notas"]
-    confirman = {n: m.requiere_confirmacion for n, m in herramientas.items()}
-    assert confirman == {"abrir_app": True, "buscar_archivos": False, "buscar_web": False,
-                         "hora": False, "notas": False}
+    assert sorted(herramientas) == [
+        "abrir_app", "buscar_archivos", "buscar_web", "calendario_borrar", "calendario_crear", "calendario_eventos",
+        "clima", "correo_buscar", "correo_enviar", "drive_buscar", "drive_compartir", "hora", "notas"]
+    assert {n for n, m in herramientas.items() if m.requiere_confirmacion} == {
+        "abrir_app", "calendario_borrar", "calendario_crear", "correo_enviar", "drive_compartir"}
