@@ -1,11 +1,24 @@
 """Bucle de conversación: un turno con herramientas y la conversación en terminal."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from jarvis.tools import definiciones
 
+# Respaldo si no se puede leer personalidad.md.
 SISTEMA = "Eres Jarvis, un asistente personal. Responde en español y de forma breve. Usa las herramientas cuando ayuden."
 MAX_ITERACIONES = 5
 AFIRMATIVAS = {"s", "si", "sí"}
+ARCHIVO_PERSONALIDAD = Path(__file__).parent / "personalidad.md"
+
+
+def cargar_sistema() -> str:
+    # ponytail: se lee en cada turno (barato, y se edita sin reiniciar); si se empaqueta sin modo editable,
+    # declarar personalidad.md como package-data.
+    try:
+        return ARCHIVO_PERSONALIDAD.read_text(encoding="utf-8")  # tal cual, sin strip
+    except OSError:
+        return SISTEMA
 
 
 def confirmar_por_terminal(nombre: str, argumentos: dict) -> bool:
@@ -33,8 +46,9 @@ def ejecutar_llamada(llamada, herramientas, confirmar) -> str:
 def turno(cliente, historial: list[dict], herramientas: dict, texto: str,
           confirmar=confirmar_por_terminal, max_iteraciones: int = MAX_ITERACIONES) -> str:
     historial.append({"rol": "usuario", "texto": texto})
+    sistema = cargar_sistema()
     for _ in range(max_iteraciones):
-        respuesta = cliente.responder(historial, definiciones(herramientas), SISTEMA)
+        respuesta = cliente.responder(historial, definiciones(herramientas), sistema)
         if not respuesta.texto.strip() and not respuesta.llamadas:
             # Un mensaje de asistente vacío (o solo espacios) lo rechaza la API en el siguiente turno.
             # ponytail: si ya corrieron herramientas con efectos reales, avisar en vez de "prueba de nuevo".

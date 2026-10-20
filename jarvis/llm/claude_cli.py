@@ -13,6 +13,9 @@ from jarvis.llm import Respuesta
 # Fija porque --resume busca la sesión por carpeta.
 CARPETA_NEUTRA = Path(tempfile.gettempdir()) / "jarvis-claude-cli"
 TIMEOUT = 120  # ponytail: fijo; hacerlo configurable si alguna respuesta tarda más
+# Va tras la personalidad: esta pide usar herramientas y, sin la frase, el modelo podría fingir que las usó.
+SIN_HERRAMIENTAS = ("En esta sesión no tienes herramientas: no puedes consultar la hora, notas, archivos, "
+                    "aplicaciones ni la web. Si te piden algo así, dilo en una frase y no finjas haberlo hecho.")
 
 
 class ClienteClaudeCLI:
@@ -24,14 +27,16 @@ class ClienteClaudeCLI:
         self.al_texto = None  # función(fragmento) que recibe cada text_delta según llega
 
     def responder(self, mensajes: list[dict], herramientas: list[dict], sistema: str) -> Respuesta:
-        # ponytail: sin herramientas (--tools ""), así que `herramientas` se ignora y nunca hay llamadas.
+        # ponytail: sin herramientas (--tools ""), así que `herramientas` se ignora y nunca hay llamadas;
+        # el modelo lo sabe por SIN_HERRAMIENTAS. Dar herramientas a claude-cli es un goal aparte.
         # Con --resume claude ya tiene el historial: solo se manda el último mensaje del usuario.
         texto = next(m["texto"] for m in reversed(mensajes) if m["rol"] == "usuario")
         # Arranque corto: --safe-mode (sin CLAUDE.md ni hooks), --disable-slash-commands (sin skills),
         # --strict-mcp-config (sin MCP) y --setting-sources "" (sin ajustes del usuario).
         # No se usa --bare (exige clave de API) ni --no-session-persistence (--resume lo necesita).
         comando = ["claude", "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-                   "--model", self.modelo, "--effort", self.esfuerzo, "--system-prompt", sistema, "--tools", "",
+                   "--model", self.modelo, "--effort", self.esfuerzo,
+                   "--system-prompt", sistema + "\n\n" + SIN_HERRAMIENTAS, "--tools", "",
                    "--safe-mode", "--disable-slash-commands", "--strict-mcp-config", "--setting-sources", ""]
         if self.session_id:
             comando += ["--resume", self.session_id]
@@ -39,7 +44,9 @@ class ClienteClaudeCLI:
         # stderr va al mismo canal que stdout: así no puede llenarse y bloquear la lectura.
         proceso = self.abrir(comando, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, encoding="utf-8", cwd=CARPETA_NEUTRA)
-        reloj = threading.Timer(TIMEOUT, proceso.kill)
+        # Se marca antes de kill: reloj.finished se fija después y el hilo principal podría mirarlo antes.
+        agotado = threading.Event()
+        reloj = threading.Timer(TIMEOUT, lambda: (agotado.set(), proceso.kill()))
         reloj.start()
         try:
             proceso.stdin.write(texto)
@@ -60,9 +67,11 @@ class ClienteClaudeCLI:
             proceso.wait()
         finally:
             reloj.cancel()
+            proceso.kill()  # si algo falló a mitad del stream claude seguiría vivo; si ya terminó no hace nada
+            proceso.wait()
         if resultado is None:
-            raise RuntimeError(f"claude -p salió con código {proceso.returncode} sin resultado: "
-                               f"{''.join(ajenas).strip()[:300]}")
+            causa = f"tiempo agotado ({TIMEOUT} s)" if agotado.is_set() else f"código {proceso.returncode}"
+            raise RuntimeError(f"claude -p salió por {causa} sin resultado: {''.join(ajenas).strip()[:300]}")
         if resultado.get("is_error"):
             raise RuntimeError(f"claude -p falló: {resultado.get('result')}")
         self.session_id = resultado["session_id"]  # solo tras un éxito

@@ -1,9 +1,12 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from jarvis import bucle
 from jarvis.bucle import (
     SISTEMA,
+    cargar_sistema,
     confirmar_por_terminal,
     conversar,
     ejecutar_llamada,
@@ -52,6 +55,21 @@ def test_turno_solo_texto():
         {"rol": "usuario", "texto": "hola"},
         {"rol": "asistente", "texto": "Hola, soy Jarvis.", "llamadas": []},
     ]
+    assert cliente.recibidos[0]["sistema"] == cargar_sistema()
+
+
+def test_sistema_viene_de_personalidad_md():
+    cliente = ClienteFalso([Respuesta(texto="ok")])
+    turno(cliente, [], {}, "hola")
+    sistema = cliente.recibidos[0]["sistema"]
+    assert sistema == (Path(bucle.__file__).parent / "personalidad.md").read_text(encoding="utf-8")
+    assert "Eres Jarvis, el asistente personal de Sergio" in sistema
+
+
+def test_sin_personalidad_usa_el_respaldo(monkeypatch, tmp_path):
+    monkeypatch.setattr(bucle, "ARCHIVO_PERSONALIDAD", tmp_path / "no_existe.md")
+    cliente = ClienteFalso([Respuesta(texto="ok")])
+    turno(cliente, [], {}, "hola")
     assert cliente.recibidos[0]["sistema"] == SISTEMA
 
 

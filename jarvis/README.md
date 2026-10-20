@@ -33,6 +33,21 @@ python -m jarvis
 
 Sal con `/salir` o Ctrl+C.
 
+## Herramientas
+
+- `hora`: da la fecha y hora actuales (sin argumentos).
+- `notas`: guarda y consulta notas. Argumentos: `accion` (`crear`, `listar` o `buscar`) y `texto` (contenido o texto a buscar).
+- `buscar_archivos`: busca archivos por nombre, sin leer su contenido. Argumentos: `carpeta` y `patron` (admite `*.pdf`).
+- `abrir_app`: abre una aplicación del menú Inicio. Argumento: `nombre`. Pide confirmación `[s/N]` antes de abrir nada.
+- `buscar_web`: busca en la web. Argumento: `consulta`.
+
+`JARVIS_DATOS` (opcional) indica la carpeta donde se guardan los datos locales, como las notas. Por defecto es `datos/` en la raíz del proyecto, y git la ignora.
+
+Con el proveedor por defecto `claude-cli` el modelo NO puede usar herramientas. Para usarlas pon en `.env`:
+
+- `LLM_PROVIDER=claude` y `ANTHROPIC_API_KEY=...`, o
+- `LLM_PROVIDER=openrouter` y `OPENROUTER_API_KEY=...`.
+
 ## Probar
 
 ```powershell

@@ -1,229 +1,283 @@
 # Estado del bucle
 
-Fase actual: 1 — cerrada (pendiente de tu revisión y commit)
-Último goal cerrado: goals/01-nucleo.md
+Fase actual: 2 — cerrada (pendiente de tu revisión y commit; goal: goals/02-herramientas.md, rama `fase-2`)
+Último goal cerrado: goals/01-nucleo.md (commit b20ba9e)
 
 ## Hecho
-- Diseño de la fase 1: docs/decisiones/001-nucleo-fase-1.md (pesado).
-- Código: jarvis/ (bucle, config, tools/hora.py, llm/ con ClienteClaude, ClienteOpenRouter y ClienteFalso), pyproject.toml, .venv, jarvis/README.md.
-- Verificador (última pasada): `pytest -q` → 46 passed, exit 0, también sin claves; sin claves en jarvis/ ni tests/.
-- Revisor: 1.ª vuelta CAMBIOS REQUERIDOS (respuesta vacía del modelo, aviso de herramientas ya ejecutadas), corregido; 2.ª vuelta APROBADO. Después se aplicó su recomendación del .strip() (con test).
+- Fase 1 cerrada y commiteada: núcleo (bucle, config, tools/hora.py, llm/ con ClienteClaude, ClienteOpenRouter, ClienteClaudeCLI y ClienteFalso). Diseño: docs/decisiones/001-nucleo-fase-1.md.
+- Fase 2: revisor revisó jarvis/llm/claude_cli.py (correcciones en el working tree: `M jarvis/llm/claude_cli.py`, `M tests/test_claude_cli.py`).
+- Fase 2: explorador mapeó el código. pesado decidió el diseño: docs/decisiones/002-herramientas-fase-2.md (abajo, la especificación).
 
-- Extra (2026-10-20): proveedor `claude-cli` (jarvis/llm/claude_cli.py), ahora el proveedor por defecto. `pytest -q` → 56 passed, exit 0. Sin pasada del `revisor` todavía. Sin herramientas con este proveedor (ponytail: `--tools ""`).
-
-- Extra (2026-10-20): `claude-cli` con streaming y arranque corto. `pytest -q` → 61 passed, exit 0. Pendiente: que el usuario corra `scripts/medir_claude_cli.py` y pase `revisor`.
+- Fase 2 (cierre): revisor de claude_cli.py → CAMBIOS REQUERIDOS (proceso `claude` huérfano si falla el stream; timeout sin nombre), corregido por constructor con tests. Herramientas 2 y 3 (ligero), 4 y 5, personalidad (`cargar_sistema`), aviso/sufijo de claude-cli y conftest con guardia (constructor), README (ligero). Revisor del diff → APROBADO; se aplicaron sus ajustes (guardia también sobre `subprocess.run`, `es_env` más amplio, `uddg` vacío, retoques de tests/doc).
+- Verificador (última pasada): `pytest -q` sin claves → 100 passed, exit 0; herramientas → `['abrir_app', 'buscar_archivos', 'buscar_web', 'hora', 'notas']`; personalidad.md sin cambios; sin `shell=True`; `datos/` en .gitignore y no creada; sin claves.
 
 ## Pendiente inmediato
-- Tú: revisar el diff (`git diff` y `git status`), probar `python -m jarvis` con clave real en `.env` y hacer el commit.
-- Siguiente: goals/02-herramientas.md (reescribirlo con el equipo actual antes de lanzarlo; ver goals/00-reglas-comunes.md).
+- Tú: revisar el diff (`git diff` y `git status`), hacer la prueba manual de abajo y el commit. `goals/06-noche-fases-3-a-6.md` apareció sin seguimiento durante la sesión y no es de esta vuelta.
+- Siguiente: goals/03-voz.md (reescribirlo con el equipo actual antes de lanzarlo).
 
 ## Bloqueos / dudas para el usuario
-- El ID por defecto de OpenRouter (`anthropic/claude-sonnet-5-5`, en jarvis/llm/openrouter.py) NO está verificado contra la API. Confírmalo con tu clave o fija JARVIS_MODEL.
-- Ninguna prueba ha llamado a una API real: `python -m jarvis` con clave real queda como prueba manual tuya.
-- Deuda anotada con `ponytail:` para la fase 2 (herramientas con efectos reales): avisar al usuario si el modelo responde vacío tras ejecutar herramientas; los bloques thinking se descartan; el historial crece sin límite; la confirmación solo funciona por terminal (rehacer en la fase de voz).
+- **PREGUNTA PARA EL USUARIO (claude-cli y herramientas):** con el proveedor por defecto (`claude-cli`) las cinco herramientas existen, pero el modelo no puede usarlas. En esta fase solo se avisa al arrancar y se le dice al modelo que no las tiene (decisión 002, punto 7). Para tu prueba manual de la fase 2, pon `LLM_PROVIDER=claude` (con ANTHROPIC_API_KEY) u `openrouter` (con OPENROUTER_API_KEY) en `.env`. ¿Quieres un goal propio para dar herramientas a claude-cli, o prefieres cambiar el proveedor por defecto?
+- **Para revisar (decisión de pesado, cambiar es una línea):** `buscar_web` no pide confirmación, porque solo lee y no tiene efectos, pero la consulta sale a DuckDuckGo. Si prefieres que pida confirmación en cada búsqueda, es `requiere_confirmacion = True` en jarvis/tools/buscar_web.py y ajustar su test.
+- Prueba manual solo tuya: que `Get-StartApps` y `os.startfile("shell:AppsFolder\\...")` abran tus apps, que DuckDuckGo responda sin captcha y que la personalidad (varias líneas) llegue entera a `claude -p`. Si algo falla, las alternativas están en la decisión 002, en Consecuencias.
+- Siguen de la fase 1: el ID por defecto de OpenRouter (`anthropic/claude-sonnet-5-5`) no está verificado; ninguna prueba llamó a una API real; hay deuda `ponytail:` (respuesta vacía tras herramientas, historial sin límite, confirmación solo por terminal).
 
 ---
 
-# Especificación fase 1 (para constructor, conector-llm y ligero)
+# Especificación fase 2 (para ligero y constructor)
 
-Convención: **todo nombre propio en español** (módulos, funciones, clases, claves de diccionarios). Python 3.11+ (el equipo usa 3.12). Ningún test lee `.env` ni llama a la red. Nadie lee ni toca `.env` ni `.env.example`.
+Fuente: docs/decisiones/002-herramientas-fase-2.md. Convención: nombres en español, `# ponytail: <límite>; <cómo mejorarlo>` en cada atajo, Python 3.11+, sin dependencias nuevas (solo la biblioteca estándar). TDD: primero el test que falla. Ningún test abre una app, usa la red, lee `.env` ni escribe fuera de `tmp_path`. **Ningún módulo de herramienta tiene efectos al importarse** (nada de PowerShell, red ni mkdir a nivel de módulo): `cargar_herramientas()` los importa todos.
 
-## Estructura de archivos
+Las herramientas siguen el contrato de `jarvis/tools/hora.py` (NOMBRE, DESCRIPCION, ESQUEMA, requiere_confirmacion, ejecutar(**args) -> str). `ejecutar` solo acepta los argumentos del ESQUEMA (nada inyectable por el modelo). Los errores esperables se devuelven como texto `"Error: ..."`. Los inesperados (OSError, timeout) pueden lanzar excepción, porque `bucle.ejecutar_llamada` ya los convierte en `"Error: <e>"`.
 
-```
-pyproject.toml
-jarvis/
-  __init__.py            (vacío)
-  __main__.py            main(): conecta las piezas
-  config.py              Config, ErrorConfig, cargar_config
-  bucle.py               SISTEMA, turno, ejecutar_llamada, confirmar_por_terminal, conversar
-  README.md              instalar y ejecutar (ligero)
-  llm/
-    __init__.py          Respuesta, LlamadaHerramienta, Cliente (Protocol), crear_cliente
-    claude.py            ClienteClaude + a_formato_anthropic + desde_anthropic
-    openrouter.py        ClienteOpenRouter + a_formato_openai + desde_openai
-    falso.py             ClienteFalso
-  tools/
-    __init__.py          CARPETA_TOOLS, cargar_herramientas, definiciones
-    hora.py              herramienta de ejemplo y plantilla
-tests/
-  test_config.py
-  test_tools.py
-  test_llm.py
-  test_bucle.py
-```
+En los tests, cada módulo se importa normal (`from jarvis.tools import notas`) y se parchea con `monkeypatch.setattr(modulo, ...)`.
 
-## pyproject.toml
-- `[build-system]` setuptools. `[project]`: name `jarvis`, `requires-python = ">=3.11"`, dependencias `anthropic`, `openai`, `python-dotenv` (sin fijar versiones; `ponytail:` fijarlas cuando haga falta). `[project.optional-dependencies] dev = ["pytest"]`.
-- `[tool.setuptools] packages = ["jarvis", "jarvis.llm", "jarvis.tools"]` (explícito, para que no detecte `docs/`, `loop/` ni `goals/`).
-- `[tool.pytest.ini_options] testpaths = ["tests"]`, `pythonpath = ["."]`.
-- Instalación: `python -m venv .venv` y luego `.venv\Scripts\python -m pip install -e ".[dev]"`.
-- Comprobar que `.gitignore` incluye `.venv/` y `.env`, sin abrir `.env`.
+## Archivos
 
-## Contratos
+| Archivo | Quién | Qué |
+|---|---|---|
+| `.gitignore` | ligero | añadir la línea `datos/` |
+| `jarvis/tools/notas.py` + `tests/test_notas.py` | ligero | herramienta 2 |
+| `jarvis/tools/buscar_archivos.py` + `tests/test_buscar_archivos.py` | ligero | herramienta 3 |
+| `jarvis/README.md` | ligero | sección corta: las 5 herramientas, `JARVIS_DATOS`, que `abrir_app` pide confirmación y que con `claude-cli` no hay herramientas |
+| `tests/conftest.py` | constructor | guardia autouse sin efectos reales |
+| `jarvis/tools/abrir_app.py` + `tests/test_abrir_app.py` | constructor | herramienta 4 |
+| `jarvis/tools/buscar_web.py` + `tests/test_buscar_web.py` | constructor | herramienta 5 |
+| `jarvis/bucle.py` + `tests/test_bucle.py` | constructor | personalidad |
+| `jarvis/llm/claude_cli.py` + `tests/test_claude_cli.py` | constructor | sufijo "sin herramientas" |
+| `jarvis/__main__.py` + `tests/test_main.py` | constructor | aviso al arrancar |
+| `tests/test_tools.py` | constructor (al final) | las cinco y sus banderas |
 
-### Formato neutro de mensajes (historial)
+No se tocan: `jarvis/personalidad.md` (ni su texto ni sus espacios), `jarvis/config.py`, `jarvis/tools/__init__.py`, `jarvis/tools/hora.py`, `scripts/medir_claude_cli.py`, `.env*`.
+
+## Herramienta 2 — jarvis/tools/notas.py (ligero)
+
 ```python
-{"rol": "usuario",     "texto": str}
-{"rol": "asistente",   "texto": str, "llamadas": list[LlamadaHerramienta]}
-{"rol": "herramienta", "id_llamada": str, "resultado": str}
-```
-Definición neutra de herramienta: `{"nombre": str, "descripcion": str, "esquema": dict}`.
+NOMBRE = "notas"
+DESCRIPCION = ("Guarda, lista o busca notas del usuario en un archivo local. "
+               "accion='crear' con texto, 'listar', o 'buscar' con texto.")
+ESQUEMA = {
+    "type": "object",
+    "properties": {
+        "accion": {"type": "string", "enum": ["crear", "listar", "buscar"]},
+        "texto": {"type": "string", "description": "Contenido de la nota (crear) o texto a buscar (buscar)."},
+    },
+    "required": ["accion"],
+}
+requiere_confirmacion = False  # solo escribe dentro de la carpeta de datos
+CARPETA_DATOS_POR_DEFECTO = Path(__file__).resolve().parents[2] / "datos"
+ARCHIVO = "notas.txt"
+MAX_NOTAS = 20
 
-### jarvis/llm/__init__.py (conector-llm)
+def carpeta_datos() -> Path      # Path(os.environ["JARVIS_DATOS"]) si existe y no está vacía; si no, CARPETA_DATOS_POR_DEFECTO. Se lee en cada llamada.
+def ejecutar(accion: str, texto: str = "") -> str
+```
+- Archivo `carpeta_datos() / ARCHIVO`, en UTF-8, una nota por línea: `f"{datetime.now():%Y-%m-%d %H:%M} | {' '.join(texto.split())}\n"` (los saltos de línea y los espacios repetidos quedan en un solo espacio). `crear` hace `mkdir(parents=True, exist_ok=True)` y añade la línea al final (modo `"a"`).
+- Salidas exactas:
+  - crear OK → `"Nota guardada."`
+  - crear con texto vacío o solo espacios → `"Error: la nota está vacía."` (no crea el archivo)
+  - listar sin archivo o sin líneas → `"No hay notas."`
+  - listar → las últimas `MAX_NOTAS` líneas, sin el `\n` final, unidas por `"\n"`
+  - buscar con texto vacío → `"Error: falta el texto a buscar."`
+  - buscar → las últimas `MAX_NOTAS` líneas que contienen el texto (comparando con `casefold()`), unidas por `"\n"`. Si no hay ninguna → `f"No hay notas que contengan '{texto}'."`
+  - otra acción → `f"Error: acción desconocida '{accion}'; usa crear, listar o buscar."`
+- `ponytail:` listar y buscar sin paginar (solo las últimas 20); sin borrar ni editar notas.
+
+**tests/test_notas.py** (todos con `monkeypatch.setenv("JARVIS_DATOS", str(tmp_path / "datos"))`, una carpeta que aún no existe):
+1. crear → `"Nota guardada."`; `notas.txt` existe y su línea cumple `^\d{4}-\d{2}-\d{2} \d{2}:\d{2} \| comprar pan$`.
+2. crear con `"línea uno\nlínea dos"` guarda una sola línea con `"línea uno línea dos"`.
+3. crear `"   "` → `"Error: la nota está vacía."` y no hay archivo.
+4. listar sin notas → `"No hay notas."`; tras crear dos, listar devuelve 2 líneas en orden de creación.
+5. listar con 25 notas devuelve exactamente 20 líneas, las últimas.
+6. buscar `"PAN"` encuentra `"comprar pan"` y no `"llamar a Ana"`; buscar `"xyz"` → `"No hay notas que contengan 'xyz'."`; buscar `""` → `"Error: falta el texto a buscar."`
+7. acción `"borrar"` → empieza por `"Error: acción desconocida 'borrar'"`.
+8. Sin `JARVIS_DATOS` (`monkeypatch.delenv(..., raising=False)`): `carpeta_datos() == <raíz del repo>/"datos"`, con la raíz calculada como `Path(__file__).resolve().parents[1]` desde tests/. No escribe nada.
+9. `notas.requiere_confirmacion is False`.
+
+## Herramienta 3 — jarvis/tools/buscar_archivos.py (ligero)
+
 ```python
-@dataclass
-class LlamadaHerramienta:
-    id: str
-    nombre: str
-    argumentos: dict
+NOMBRE = "buscar_archivos"
+DESCRIPCION = ("Busca archivos por su nombre dentro de una carpeta y sus subcarpetas. Solo devuelve rutas: "
+               "no lee el contenido. Admite comodines como *.pdf.")
+ESQUEMA = {
+    "type": "object",
+    "properties": {
+        "carpeta": {"type": "string", "description": "Carpeta donde buscar, p. ej. C:\\Users\\rivas\\Documents o ~/Documents."},
+        "patron": {"type": "string", "description": "Parte del nombre o comodín (*.pdf); no distingue mayúsculas."},
+    },
+    "required": ["carpeta", "patron"],
+}
+requiere_confirmacion = False  # solo lista nombres; no lee ni cambia nada
+MAX_RESULTADOS = 50
+MAX_PROFUNDIDAD = 5
 
-@dataclass
-class Respuesta:
-    texto: str = ""
-    llamadas: list[LlamadaHerramienta] = field(default_factory=list)
-
-class Cliente(Protocol):
-    def responder(self, mensajes: list[dict], herramientas: list[dict], sistema: str) -> Respuesta: ...
-
-def crear_cliente(config: Config) -> Cliente  # "claude" -> ClienteClaude, "openrouter" -> ClienteOpenRouter
+def es_env(nombre: str) -> bool  # nombre.casefold() == ".env" o empieza por ".env."
+def ejecutar(carpeta: str, patron: str) -> str
 ```
+- `base = Path(carpeta).expanduser()`. Recorre `os.walk(base)` (sin seguir enlaces, que es lo que hace por defecto). **Nunca abre ni lee ningún archivo.**
+- En cada nivel poda las carpetas: `dirs[:] = [d for d in dirs if not d.startswith(".")]`. Si la profundidad de la carpeta actual (número de partes relativas a `base`) es `>= MAX_PROFUNDIDAD`, hace `dirs.clear()`. Así se ven archivos hasta en `base/a/b/c/d/e/` y no en `base/a/b/c/d/e/f/`.
+- Coincidencia: `p = patron.casefold()`. Si no contiene `*`, `?` ni `[`, `p = f"*{p}*"`. Luego `fnmatch.fnmatchcase(nombre.casefold(), p)`. Solo archivos, no carpetas. `es_env(nombre)` → nunca se lista.
+- Para al reunir `MAX_RESULTADOS + 1`. Muestra los primeros `MAX_RESULTADOS`, ordenados (`sorted`), como `str(Path(raiz) / nombre)`.
+- Salidas exactas:
+  - patrón vacío o solo espacios → `"Error: falta el patrón de búsqueda."`
+  - `not base.is_dir()` → `f"Error: la carpeta '{carpeta}' no existe."`
+  - sin coincidencias → `f"No encontré archivos que coincidan con '{patron}' en '{carpeta}'."`
+  - con coincidencias → `f"Encontré {n} archivo(s):"` + `"\n"` + una ruta por línea. Si se cortó por el tope, `n` = 50 y se añade una última línea `"(hay más; acota la búsqueda)"`.
+- `ponytail:` sin tope de tiempo ni de carpetas visitadas; si buscar en C:\ tarda, añadir uno.
 
-### jarvis/llm/claude.py (conector-llm)
-- `ClienteClaude(clave: str, modelo: str, sdk=None)`: si `sdk` es None, crea `anthropic.Anthropic(api_key=clave)`.
-- `responder` llama a `sdk.messages.create(model=modelo, max_tokens=MAX_TOKENS, system=sistema, messages=a_formato_anthropic(mensajes), tools=[...])`. Las herramientas se traducen a `{"name", "description", "input_schema"}` y `tools` se omite si la lista está vacía. Usar `MAX_TOKENS = 1024  # ponytail: fijo`.
-- `a_formato_anthropic(mensajes) -> list[dict]`:
-  - usuario → bloque `{"type":"text","text":...}` con rol `user`.
-  - asistente → rol `assistant`, con un bloque `text` si el texto no está vacío y un `{"type":"tool_use","id","name","input"}` por llamada.
-  - herramienta → `{"type":"tool_result","tool_use_id","content"}` con rol `user`.
-  - **Mensajes `user` consecutivos se fusionan en uno** (varios tool_result seguidos, o tool_result seguido de un texto del usuario).
-- `desde_anthropic(resp) -> Respuesta`: concatena los bloques `text` y convierte cada `tool_use` en `LlamadaHerramienta`.
+**tests/test_buscar_archivos.py** (todo en `tmp_path`):
+1. Encuentra `informe.pdf` y `sub/Informe-2.PDF` con el patrón `"informe"`, y también con `"*.pdf"`. La salida empieza por `"Encontré 2 archivo(s):"` y contiene las dos rutas completas.
+2. **No lee contenidos:** `notas.txt` con el contenido `"informe"` no aparece al buscar `"informe"`.
+3. **Sin .env:** `.env`, `.ENV`, `.env.local` y `sub/.env.example` no aparecen al buscar `"env"` ni `"*"`, y `config.env.txt` sí.
+4. Carpeta oculta: `.git/informe.txt` no aparece.
+5. Profundidad: `a/b/c/d/e/x.txt` aparece; `a/b/c/d/e/f/x.txt` no.
+6. Tope: 60 archivos `f{i}.txt` → la salida tiene la cabecera `"Encontré 50 archivo(s):"`, 50 rutas y la línea final `"(hay más; acota la búsqueda)"`.
+7. Carpeta inexistente → `"Error: la carpeta '...' no existe."`; patrón `""` → `"Error: falta el patrón de búsqueda."`; sin coincidencias → `"No encontré archivos que coincidan con 'zzz' en '...'."`
+8. `buscar_archivos.requiere_confirmacion is False`.
 
-### jarvis/llm/openrouter.py (conector-llm)
-- `ClienteOpenRouter(clave: str, modelo: str, sdk=None)`: si `sdk` es None, crea `openai.OpenAI(api_key=clave, base_url="https://openrouter.ai/api/v1")`.
-- `responder` llama a `sdk.chat.completions.create(model, max_tokens, messages=a_formato_openai(mensajes, sistema), tools=[{"type":"function","function":{"name","description","parameters"}}])` y omite `tools` si la lista está vacía.
-- `a_formato_openai(mensajes, sistema)`:
-  - Primero `{"role":"system"}`. usuario → `user`.
-  - asistente → `{"role":"assistant","content": texto o None, "tool_calls":[{"id","type":"function","function":{"name","arguments": json.dumps(args)}}]}` (sin `tool_calls` si no hay llamadas).
-  - herramienta → `{"role":"tool","tool_call_id","content"}`.
-- `desde_openai(resp)`: toma `choices[0].message`, con `content or ""`, y `tool_calls` con `json.loads(arguments)`. Si el JSON no es válido, usa `{}` y lo marca con `ponytail:`.
+## tests/conftest.py (constructor, primero)
 
-### jarvis/llm/falso.py (conector-llm)
-- `ClienteFalso(respuestas: list[Respuesta])`: `responder` devuelve las respuestas en orden y guarda en `self.recibidos` una copia de los argumentos de cada llamada (`mensajes`, `herramientas`, `sistema`). Si se agotan, lanza `RuntimeError("ClienteFalso sin respuestas")`.
+Hay un fixture `autouse` llamado `sin_efectos_reales(monkeypatch)` que sustituye `os.startfile` (con `raising=False`) y `urllib.request.urlopen` por una función que lanza `AssertionError("un test intentó una acción real (app o red)")`. Los tests que comprueban los envoltorios reales los vuelven a parchear con un grabador.
 
-### jarvis/config.py (constructor)
+## Herramienta 4 — jarvis/tools/abrir_app.py (constructor)
+
 ```python
-class ErrorConfig(Exception): ...
+NOMBRE = "abrir_app"
+DESCRIPCION = ("Abre una aplicación instalada en este equipo Windows por su nombre, tal como aparece "
+               "en el menú Inicio (p. ej. 'Calculadora', 'Spotify'). Requiere confirmación del usuario.")
+ESQUEMA = {
+    "type": "object",
+    "properties": {"nombre": {"type": "string", "description": "Nombre de la aplicación en el menú Inicio."}},
+    "required": ["nombre"],
+}
+requiere_confirmacion = True  # abre un programa: efecto real fuera de la carpeta de datos
+COMANDO_APPS = ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-StartApps | ConvertTo-Json -Compress"]
+TIMEOUT_APPS = 15
+MAX_CANDIDATOS = 5
+EXCLUIDAS = ("uninstall", "desinstal")
 
-@dataclass
-class Config:
-    proveedor: str   # "claude" | "openrouter"
-    modelo: str
-    clave: str       # nunca se imprime ni se registra en logs
-
-def cargar_config(entorno: Mapping[str, str]) -> Config
+def listar_apps() -> list[dict]   # [{"Name": str, "AppID": str}, ...]
+def abrir(app_id: str) -> None    # os.startfile("shell:AppsFolder\\" + app_id)
+def normalizar(texto: str) -> str # casefold + sin tildes (unicodedata NFKD, quitando combining) + strip
+def ejecutar(nombre: str) -> str
 ```
-- `JARVIS_PROVIDER` vale `claude` por defecto. Cualquier valor distinto de `claude` u `openrouter` lanza `ErrorConfig`.
-- La clave sale de `ANTHROPIC_API_KEY` o de `OPENROUTER_API_KEY`, según el proveedor. Si falta o está vacía, lanza `ErrorConfig` con un mensaje que nombra la variable y dice que va en `.env`. El valor de la clave nunca aparece en el mensaje.
-- `JARVIS_MODEL` tiene estos valores por defecto: `claude-sonnet-5-5` para claude y la constante que fije conector-llm para openrouter.
+- `listar_apps`: `subprocess.run(COMANDO_APPS, capture_output=True, timeout=TIMEOUT_APPS, check=True)`. La salida se decodifica con `"utf-8-sig"` (PowerShell puede poner BOM). Si está vacía → `[]`. Si es un objeto suelto → `[objeto]`. **Prohibido** `shell=True` y meter `nombre` en el comando.
+- `abrir`: llama a `os.startfile` por atributo, nunca con `from os import startfile`, para que la guardia de conftest funcione.
+- `ejecutar`:
+  1. `buscado = normalizar(nombre)`. Si queda vacío → `"Error: falta el nombre de la aplicación."` (sin listar).
+  2. `apps = [a for a in listar_apps() if not any(x in normalizar(a["Name"]) for x in EXCLUIDAS)]`.
+  3. Exactas: `normalizar(Name) == buscado`. Si hay alguna, abre la primera.
+  4. Si no, parciales: `buscado in normalizar(Name)`. Con 1 la abre. Con más de 1 → `f"Hay varias aplicaciones que coinciden con '{nombre}': {', '.join(primeros MAX_CANDIDATOS Name)}. ¿Cuál abro?"` sin abrir nada.
+  5. Sin coincidencias → `f"No encontré ninguna aplicación instalada llamada '{nombre}'."`
+  6. Al abrir → `abrir(app["AppID"])` y devuelve `f"Abrí {app['Name']}."`
+- `ponytail:` PowerShell en cada llamada (1–2 s; cachear la lista); el usuario confirma el nombre pedido, no el AppID resuelto; no abre desinstaladores.
 
-### jarvis/tools/__init__.py (constructor)
+**tests/test_abrir_app.py**: el helper `apps_falsas(monkeypatch, apps)` parchea `abrir_app.listar_apps` (que cuenta las llamadas) y `abrir_app.abrir` (que guarda cada `app_id` en una lista `abiertas`).
+1. **`test_sin_confirmacion_no_abre_la_app`** (el test que pide el goal): `bucle.ejecutar_llamada(LlamadaHerramienta("l1", "abrir_app", {"nombre": "calculadora"}), {"abrir_app": abrir_app}, lambda n, a: False)` → `"El usuario canceló la acción."`, con `abiertas == []` y `listar_apps` sin llamar. Con `lambda n, a: True` → `"Abrí Calculadora."` y `abiertas == ["Microsoft.WindowsCalculator_8wekyb3d8bbwe!App"]`.
+2. `abrir_app.requiere_confirmacion is True`.
+3. Exacta gana a parcial: las apps `"Word"` y `"WordPad"`; con `"word"` se abre Word.
+4. Parcial única: `"chrome"` → abre `"Google Chrome"`.
+5. Varias parciales: con `"visual"` frente a `"Visual Studio"` y `"Visual Studio Code"` → empieza por `"Hay varias aplicaciones"`, nombra las dos y `abiertas == []`.
+6. Sin tildes ni mayúsculas: `"configuracion"` abre `"Configuración"`.
+7. Desinstaladores excluidos: `"Zoom Uninstaller"` como única coincidencia de `"zoom"` → `"No encontré ninguna aplicación instalada llamada 'zoom'."`
+8. Nombre `"  "` → `"Error: falta el nombre de la aplicación."`
+9. `listar_apps` real con `abrir_app.subprocess.run` parcheado: comprueba que el comando recibido `== abrir_app.COMANDO_APPS`, que no lleva `shell=True` y que la salida con BOM (`'\ufeff{"Name":"Calculadora","AppID":"X!App"}'` en bytes UTF-8) da una lista de 1. Con `b""` da `[]`.
+10. `abrir` real con `os.startfile` parcheado por un grabador → recibe `"shell:AppsFolder\\X!App"`.
+
+## Herramienta 5 — jarvis/tools/buscar_web.py (constructor)
+
 ```python
-CARPETA_TOOLS: Path  # Path(__file__).parent
-def cargar_herramientas(carpeta: Path = CARPETA_TOOLS) -> dict[str, ModuleType]
-def definiciones(herramientas: dict[str, ModuleType]) -> list[dict]  # formato neutro
-```
-- Recorre `carpeta.glob("*.py")` y se salta los que empiezan por `_`. Carga cada uno con `importlib.util.spec_from_file_location`.
-- Valida que existan `NOMBRE`, `DESCRIPCION`, `ESQUEMA`, `requiere_confirmacion` y un `ejecutar` invocable. Si falta algo, lanza `ValueError` nombrando el archivo y el atributo. La clave del diccionario es `NOMBRE`.
+NOMBRE = "buscar_web"
+DESCRIPCION = ("Busca en la web (DuckDuckGo) y devuelve hasta 5 resultados con título, resumen y enlace. "
+               "No incluyas datos personales en la consulta.")
+ESQUEMA = {
+    "type": "object",
+    "properties": {"consulta": {"type": "string", "description": "Qué buscar."}},
+    "required": ["consulta"],
+}
+requiere_confirmacion = False  # solo lee; no cambia nada fuera de la carpeta de datos (ver decisión 002, punto 2)
+URL = "https://html.duckduckgo.com/html/"
+AGENTE = "Mozilla/5.0 (Jarvis)"
+TIMEOUT = 10
+MAX_RESULTADOS = 5
 
-### Contrato de un archivo de herramienta (jarvis/tools/hora.py como plantilla)
+def descargar(url: str) -> str                    # urllib.request.urlopen(Request(url, headers={"User-Agent": AGENTE}), timeout=TIMEOUT); .read().decode("utf-8", "replace")
+def extraer_resultados(html: str) -> list[dict]  # [{"titulo", "url", "resumen"}] en orden de aparición
+def ejecutar(consulta: str) -> str
+```
+- `descargar` llama a `urllib.request.urlopen` por atributo (por la guardia de conftest).
+- `ejecutar`:
+  - consulta vacía o solo espacios → `"Error: falta la consulta."`
+  - URL = `URL + "?" + urllib.parse.urlencode({"q": consulta})`
+  - toma los primeros `MAX_RESULTADOS` de `extraer_resultados(descargar(url))`
+  - sin resultados → `f"Sin resultados para '{consulta}'."`
+  - con resultados → una línea por resultado, unidas por `"\n"`: `f"{i}. {titulo} — {resumen} ({url})"`, o `f"{i}. {titulo} ({url})"` si el resumen está vacío.
+- `extraer_resultados`:
+  - Cada `<a ...class="result__a"...>TÍTULO</a>` es un resultado. Hay que sacar `href` de la etiqueta sin depender del orden de los atributos.
+  - El resumen es el primer `class="result__snippet"...>...</a>` entre ese resultado y el siguiente; si no hay, `""`.
+  - Título y resumen: quitar etiquetas (`re.sub(r"<[^>]+>", "", s)`), aplicar `html.unescape` y colapsar espacios.
+  - URL: `html.unescape(href)`. Si lleva `uddg=`, se toma `parse_qs(urlparse(href).query)["uddg"][0]`. Si empieza por `//`, se le antepone `https:`.
+  - Se descartan los resultados cuya URL contiene `duckduckgo.com/y.js` (anuncios).
+- `ponytail:` parseo con regex del HTML de DuckDuckGo; si cambia o sale un captcha, el resultado es "Sin resultados" (distinguir el bloqueo).
+
+**tests/test_buscar_web.py** (con un HTML de mentira en una constante del test, imitando DuckDuckGo: un anuncio con `href="https://duckduckgo.com/y.js?ad=1"`, un resultado con `href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fes.wikipedia.org%2Fwiki%2FLima&amp;rut=abc"`, título `"Lima - <b>Wikipedia</b>"` y resumen `"Lima es la <b>capital</b> del Perú &amp; ..."`, un resultado sin resumen y 5 más):
+1. `extraer_resultados`: descarta el anuncio; el primero es `{"titulo": "Lima - Wikipedia", "url": "https://es.wikipedia.org/wiki/Lima", "resumen": "Lima es la capital del Perú & ..."}`; el que no tiene resumen da `"resumen": ""`.
+2. `ejecutar("clima en Lima")` con `buscar_web.descargar` parcheado: la URL recibida es `"https://html.duckduckgo.com/html/?q=clima+en+Lima"`, la salida tiene exactamente 5 líneas y la primera es `"1. Lima - Wikipedia — Lima es la capital del Perú & ... (https://es.wikipedia.org/wiki/Lima)"`.
+3. HTML sin resultados → `"Sin resultados para 'nada'."`; consulta `" "` → `"Error: falta la consulta."` sin llamar a `descargar`.
+4. `descargar` real con `urllib.request.urlopen` parcheado por un falso (un context manager con `.read()`): comprueba la URL del Request, la cabecera User-Agent `== AGENTE` y `timeout == 10`.
+5. `buscar_web.requiere_confirmacion is False`.
+
+## Personalidad — jarvis/bucle.py (constructor)
+
 ```python
-NOMBRE = "hora"
-DESCRIPCION = "Devuelve la fecha y hora local actuales."
-ESQUEMA = {"type": "object", "properties": {}, "required": []}
-requiere_confirmacion = False   # True si la acción tiene efectos reales (enviar, borrar, comprar, publicar, calendario)
-def ejecutar(**args) -> str: ...  # devuelve "AAAA-MM-DD HH:MM"
+SISTEMA = "..."  # se queda igual: ahora es el respaldo
+ARCHIVO_PERSONALIDAD = Path(__file__).parent / "personalidad.md"
+
+def cargar_sistema() -> str:
+    # lee ARCHIVO_PERSONALIDAD (global del módulo, consultada en cada llamada) con encoding="utf-8", tal cual, sin strip;
+    # si hay OSError, devuelve SISTEMA
 ```
-Además, un docstring de cabecera que explique el contrato, porque este archivo es la plantilla para las herramientas nuevas.
+- `turno` hace `sistema = cargar_sistema()` una vez, antes del bucle de iteraciones, y pasa `sistema` a `cliente.responder` en lugar de `SISTEMA`. Las firmas no cambian.
+- `ponytail:` la personalidad se lee en cada turno (es barato, y así se puede editar sin reiniciar); si algún día se empaqueta sin modo editable, declarar `personalidad.md` como package-data.
 
-### jarvis/bucle.py (constructor)
-```python
-SISTEMA = "Eres Jarvis, un asistente personal. Responde en español y de forma breve. Usa las herramientas cuando ayuden."
-MAX_ITERACIONES = 5
+**tests/test_bucle.py**:
+- Línea 55: `assert cliente.recibidos[0]["sistema"] == cargar_sistema()` (y añadir `cargar_sistema` al import).
+- Nuevo `test_sistema_viene_de_personalidad_md`: con `ClienteFalso`, `turno(...)`; el `sistema` recibido `== (Path(jarvis.bucle.__file__).parent / "personalidad.md").read_text(encoding="utf-8")` y contiene `"Eres Jarvis, el asistente personal de Sergio"`.
+- Nuevo `test_sin_personalidad_usa_el_respaldo(monkeypatch, tmp_path)`: `monkeypatch.setattr(bucle, "ARCHIVO_PERSONALIDAD", tmp_path / "no_existe.md")` y luego `turno(...)` → `sistema == SISTEMA`.
 
-def confirmar_por_terminal(nombre: str, argumentos: dict) -> bool   # input "¿Ejecutar {nombre} con {argumentos}? [s/N] "; True solo con s/si/sí
-def ejecutar_llamada(llamada, herramientas, confirmar) -> str
-def turno(cliente, historial: list[dict], herramientas: dict, texto: str,
-          confirmar=confirmar_por_terminal, max_iteraciones: int = MAX_ITERACIONES) -> str
-def conversar(cliente, herramientas: dict, entrada=input, salida=print,
-              confirmar=confirmar_por_terminal) -> None
-```
-- `ejecutar_llamada`:
-  - Si la herramienta no existe, devuelve `"Error: herramienta desconocida '<nombre>'"`.
-  - Si `requiere_confirmacion` es True y `confirmar(...)` devuelve False, devuelve `"El usuario canceló la acción."` **sin ejecutar nada**.
-  - Si no, devuelve `str(modulo.ejecutar(**argumentos))`. Si salta una excepción, devuelve `f"Error: {e}"`.
-- `turno`:
-  1. Añade el mensaje del usuario al historial.
-  2. Hasta `max_iteraciones` veces: llama a `cliente.responder(historial, definiciones(herramientas), SISTEMA)` y añade el mensaje del asistente. Si no hay llamadas, devuelve el texto. Si las hay, añade un mensaje `herramienta` por cada llamada.
-  3. Si se agota el tope, devuelve `"Me detuve: demasiadas llamadas a herramientas seguidas."`.
-- `conversar`:
-  - Muestra el prompt `"tú> "`. Termina con `/salir`, `EOFError` o `KeyboardInterrupt`, y despide con `"Hasta luego."`. Las entradas vacías se ignoran.
-  - Imprime `"jarvis> " + respuesta`.
-  - Si `turno` lanza otra excepción (error del proveedor), imprime `"Error del proveedor: <tipo>: <mensaje>"`, deja el historial como estaba antes del turno (`del historial[n:]`) y sigue.
-  - Historial en memoria (`ponytail: sin límite; recortar cuando crezca`).
+## claude-cli sin herramientas (constructor)
 
-### jarvis/__main__.py (constructor)
-`main() -> int`:
-1. `load_dotenv()`.
-2. `cargar_config(os.environ)`. Si lanza `ErrorConfig`, imprime el error en stderr y devuelve 1.
-3. `crear_cliente`, `cargar_herramientas`, `conversar` y devuelve 0.
+- `jarvis/llm/claude_cli.py`: añadir la constante `SIN_HERRAMIENTAS = "En esta sesión no tienes herramientas: no puedes consultar la hora, notas, archivos, aplicaciones ni la web. Si te piden algo así, dilo en una frase y no finjas haberlo hecho."` y pasar `"--system-prompt", sistema + "\n\n" + SIN_HERRAMIENTAS`. Actualizar el comentario `ponytail:` existente: dar herramientas a claude-cli es un goal aparte.
+- `tests/test_claude_cli.py:110`: pasa a `valor(comando, "--system-prompt") == "Eres Jarvis\n\n" + SIN_HERRAMIENTAS`.
+- `jarvis/__main__.py`: después de `cargar_config`, `if config.proveedor == "claude-cli": print("Aviso: el proveedor claude-cli no usa herramientas; para usarlas pon LLM_PROVIDER=claude u openrouter en .env.", file=sys.stderr)`.
+- `tests/test_main.py`: nuevo `test_claude_cli_avisa_que_no_hay_herramientas`, con `LLM_PROVIDER=claude-cli` y `load_dotenv`, `crear_cliente` y `conversar` parcheados como no-op → `main() == 0`; stderr contiene `"claude-cli"` y `"herramientas"`.
 
-Al final, `if __name__ == "__main__": sys.exit(main())`.
+## tests/test_tools.py (constructor, al final)
+- `test_cinco_herramientas_y_confirmaciones`: `sorted(cargar_herramientas()) == ["abrir_app", "buscar_archivos", "buscar_web", "hora", "notas"]`, y `{n: m.requiere_confirmacion for n, m in ...}` da True solo para `abrir_app`.
 
-## Tests (mínimo 12; ninguno usa red, claves reales ni `.env`)
-
-**tests/test_config.py** (constructor)
-1. Con `{"ANTHROPIC_API_KEY": "falsa"}` se obtiene proveedor `claude` y modelo `claude-sonnet-5-5`.
-2. Con el diccionario vacío, `ErrorConfig` y un mensaje que contiene `ANTHROPIC_API_KEY` y `.env`.
-3. Con `JARVIS_PROVIDER=openrouter` y sin `OPENROUTER_API_KEY`, `ErrorConfig`.
-4. Con `JARVIS_PROVIDER=otro`, `ErrorConfig`.
-5. `JARVIS_MODEL` sustituye al modelo por defecto.
-
-**tests/test_tools.py** (constructor; ligero puede escribir el 7)
-6. `cargar_herramientas()` incluye `"hora"` con el contrato completo y `requiere_confirmacion is False`.
-7. `hora.ejecutar()` cumple la regex `^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$`.
-8. Un archivo nuevo escrito en `tmp_path` se descubre sin tocar nada más, y `_privado.py` se ignora.
-9. A un archivo sin `ejecutar` le corresponde un `ValueError` que nombra el archivo.
-10. `definiciones()` devuelve `[{"nombre", "descripcion", "esquema"}]`.
-
-**tests/test_llm.py** (conector-llm)
-11. `ClienteFalso` devuelve en orden, registra lo recibido y, cuando se agota, lanza `RuntimeError`.
-12. `a_formato_anthropic`: el asistente con llamadas da bloques `tool_use`, y dos resultados seguidos más un texto del usuario quedan en UN solo mensaje `user`.
-13. `ClienteClaude` con un `sdk` simulado (SimpleNamespace) pasa `model` y `tools` con `input_schema`, y parsea `text` + `tool_use` a `Respuesta`.
-14. `a_formato_openai`: `system` va primero, `arguments` es un string JSON y el rol `tool` lleva `tool_call_id`.
-15. `ClienteOpenRouter` con un `sdk` simulado parsea `tool_calls` (los `arguments` JSON pasan a dict).
-16. `crear_cliente` devuelve `ClienteClaude` o `ClienteOpenRouter` según `Config` (con clave "falsa"; construir el SDK no llama a la red).
-
-**tests/test_bucle.py** (constructor)
-17. Si la respuesta es solo texto, `turno` devuelve ese texto y el historial queda como [usuario, asistente].
-18. Uso de herramienta: el falso pide `hora` y luego responde con texto. Se comprueba que el resultado está en el historial y que la 2.ª llamada al cliente lo recibe.
-19. Una herramienta con `requiere_confirmacion=True` no se ejecuta si `confirmar` devuelve False (resultado "canceló") y sí se ejecuta si devuelve True.
-20. Una herramienta desconocida y una herramienta que lanza una excepción dan como resultado `"Error: ..."`, sin que salte ninguna excepción.
-21. Tope: si el falso siempre pide una herramienta, se para tras `max_iteraciones` llamadas y devuelve el mensaje de tope.
-22. `conversar` con las entradas `["hola", "/salir"]` hace una sola llamada al cliente y despide. Con una entrada que lanza `EOFError`, sale sin traza.
-
-Para los tests del bucle, las herramientas falsas son `types.SimpleNamespace` con el contrato. No usan la carpeta real.
-
-## Reparto
-1. **ligero**: crea `pyproject.toml`, las carpetas, los `__init__.py` vacíos y `.venv`, e instala con `pip install -e ".[dev]"`. Revisa `.gitignore`.
-2. **conector-llm**: escribe todo `jarvis/llm/` y `tests/test_llm.py`, con TDD. Fija la constante del modelo por defecto de OpenRouter y se la pasa al constructor.
-3. **constructor** (TDD: primero el test que falla): escribe `config.py`, `tools/__init__.py`, `tools/hora.py`, `bucle.py`, `__main__.py`, `test_config.py`, `test_tools.py` y `test_bucle.py`.
-4. **ligero**: escribe `jarvis/README.md` (crear el venv, instalar, crear `.env` con las variables JARVIS_PROVIDER, ANTHROPIC_API_KEY u OPENROUTER_API_KEY y JARVIS_MODEL sin valores reales, ejecutar con `python -m jarvis` y `pytest -q`, y cómo agregar una herramienta). No toca el README.md de la raíz.
-5. **verificador**: `.venv\Scripts\python -m pytest -q` y además `pytest -q` sin claves en el entorno. Pega la salida literal.
+## Orden
+1. ligero: `.gitignore` y las herramientas 2 y 3 con sus tests. A la vez, el constructor hace `conftest.py`, abrir_app, buscar_web, personalidad, claude-cli y main (no se pisan archivos).
+2. constructor: `test_tools.py` (las cinco), una vez existan todas.
+3. ligero: README.
+4. verificador: `.venv\Scripts\python -m pytest -q` (sin claves en el entorno) y `.venv\Scripts\python -c "from jarvis.tools import cargar_herramientas; print(sorted(cargar_herramientas()))"`. Pega la salida literal.
+5. revisor: `git diff` y `git status`, contrastando con goals/02-herramientas.md y la decisión 002.
 
 ## Criterios de aceptación
-- `pytest -q` sale con 0, con 12 tests o más, sin ninguna clave en el entorno.
-- Agregar `jarvis/tools/x.py` basta para que el modelo vea la herramienta, sin editar ningún otro archivo.
-- Ninguna herramienta con `requiere_confirmacion=True` se ejecuta sin un "s" explícito del usuario.
-- Sin claves en el código, los tests ni los mensajes de error. Ninguna dependencia aparte de anthropic, openai, python-dotenv y pytest.
-- Los atajos llevan su comentario `ponytail:`.
+- `pytest -q` sale con 0 sin ninguna clave, con al menos un test por herramienta (hora ya los tiene).
+- La lista de herramientas impresa es `['abrir_app', 'buscar_archivos', 'buscar_web', 'hora', 'notas']`.
+- `abrir_app.requiere_confirmacion is True` y `test_sin_confirmacion_no_abre_la_app` pasa (sin confirmación ni se lista ni se abre).
+- Ningún test llega a `os.startfile`, `urllib.request.urlopen` ni PowerShell reales. Nada se escribe fuera de `tmp_path`.
+- `buscar_archivos` nunca abre archivos y nunca lista `.env` ni `.env.*`. `notas` no acepta rutas del modelo.
+- Ni `shell=True` ni texto del modelo dentro de un comando.
+- `jarvis/personalidad.md` sin cambios (`git diff` no lo muestra). Sin dependencias nuevas. Cada atajo lleva su `ponytail:`.
+
+---
+
+# Fase 1 (resumen; detalle en docs/decisiones/001-nucleo-fase-1.md y en el commit b20ba9e)
+
+Contratos vigentes que la fase 2 usa:
+- **Herramienta**: módulo en `jarvis/tools/` con `NOMBRE`, `DESCRIPCION`, `ESQUEMA` (JSON Schema), `requiere_confirmacion`, `ejecutar(**args) -> str`. `cargar_herramientas(carpeta=CARPETA_TOOLS)` descubre los `*.py` que no empiezan por `_` y valida el contrato (si falta algo, `ValueError`). `definiciones()` devuelve `[{"nombre", "descripcion", "esquema"}]`.
+- **Bucle**: `ejecutar_llamada(llamada, herramientas, confirmar)`. Si la herramienta es desconocida → `"Error: herramienta desconocida '<n>'"`. Si `requiere_confirmacion` y `confirmar` devuelve False → `"El usuario canceló la acción."` sin ejecutar. Si salta una excepción → `"Error: <e>"`. `turno(...)` hace como máximo 5 iteraciones; `conversar(...)` maneja terminal, streaming (`al_texto`) y errores del proveedor. `confirmar_por_terminal` solo acepta s/si/sí.
+- **Proveedor**: `Cliente.responder(mensajes, herramientas, sistema) -> Respuesta(texto, llamadas)`. `crear_cliente(config)` → claude-cli (por defecto, sin clave ni herramientas), claude u openrouter. Historial en formato neutro (`rol`: usuario, asistente, herramienta). `ClienteFalso(respuestas)` guarda lo recibido en `.recibidos`.
+- **Config**: `cargar_config(entorno)` lee `LLM_PROVIDER` (alias `JARVIS_PROVIDER`), `JARVIS_MODEL`, `JARVIS_EFFORT` y las claves `ANTHROPIC_API_KEY` u `OPENROUTER_API_KEY` según el proveedor. `load_dotenv()` solo se llama en `__main__.main()`.

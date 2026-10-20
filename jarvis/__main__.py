@@ -17,6 +17,9 @@ def main() -> int:
     except ErrorConfig as e:
         print(e, file=sys.stderr)
         return 1
+    if config.proveedor == "claude-cli":
+        print("Aviso: el proveedor claude-cli no usa herramientas; para usarlas pon LLM_PROVIDER=claude "
+              "u openrouter en .env.", file=sys.stderr)
     conversar(crear_cliente(config), cargar_herramientas())
     return 0
 

@@ -1,12 +1,14 @@
 import json
 import subprocess
+import threading
 from pathlib import Path
 from types import SimpleNamespace as NS
 
 import pytest
 
 from jarvis.llm import Respuesta, crear_cliente
-from jarvis.llm.claude_cli import ClienteClaudeCLI
+from jarvis.llm import claude_cli
+from jarvis.llm.claude_cli import SIN_HERRAMIENTAS, ClienteClaudeCLI
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -30,13 +32,31 @@ class ProcesoFalso:
         self.stdout = iter(lineas)
         self.codigo = codigo
         self.returncode = None
+        self.matado = False
 
     def wait(self):
         self.returncode = self.codigo
         return self.returncode
 
     def kill(self):
-        pass
+        self.matado = True
+
+
+class ProcesoColgado(ProcesoFalso):
+    """claude que no responde: stdout se bloquea hasta que lo maten."""
+
+    def __init__(self):
+        super().__init__([], codigo=1)
+        self.muerto = threading.Event()
+        self.stdout = self._esperar()
+
+    def _esperar(self):
+        self.muerto.wait(5)  # tope por si el reloj nunca dispara: el test falla en vez de colgarse
+        yield from ()
+
+    def kill(self):
+        super().kill()
+        self.muerto.set()
 
 
 class PopenFalso:
@@ -87,7 +107,7 @@ def test_primera_llamada_flags_prompt_y_streaming():
     assert "--verbose" in comando and "--include-partial-messages" in comando
     assert valor(comando, "--model") == "sonnet"
     assert valor(comando, "--effort") == "medium"
-    assert valor(comando, "--system-prompt") == "Eres Jarvis"
+    assert valor(comando, "--system-prompt") == "Eres Jarvis\n\n" + SIN_HERRAMIENTAS  # para que no finja usarlas
     assert valor(comando, "--tools") == ""  # sin herramientas
     # arranque corto: sin CLAUDE.md/hooks (safe-mode), skills, MCP ni ajustes del usuario
     assert "--safe-mode" in comando
@@ -150,6 +170,25 @@ def test_el_error_incluye_la_salida_del_cli():
     falso = PopenFalso(ProcesoFalso(["Error: sesión no encontrada\n"], codigo=1))
     with pytest.raises(RuntimeError, match="sesión no encontrada"):
         ClienteClaudeCLI("sonnet", "medium", abrir=falso).responder(msg("hola"), [], "s")
+
+
+def test_una_excepcion_a_mitad_del_stream_mata_el_proceso():
+    falso = PopenFalso(ProcesoFalso(flujo("Ho", "la")))
+    cliente = ClienteClaudeCLI("sonnet", "medium", abrir=falso)
+    cliente.al_texto = lambda _: 1 / 0
+
+    with pytest.raises(ZeroDivisionError):
+        cliente.responder(msg("hola"), [], "s")
+    assert falso.procesos[0].matado is True
+
+
+def test_el_timeout_mata_el_proceso_y_se_nombra_en_el_error(monkeypatch):
+    monkeypatch.setattr(claude_cli, "TIMEOUT", 0.01)
+    falso = PopenFalso(ProcesoColgado())
+
+    with pytest.raises(RuntimeError, match="tiempo agotado"):
+        ClienteClaudeCLI("sonnet", "medium", abrir=falso).responder(msg("hola"), [], "s")
+    assert falso.procesos[0].matado is True
 
 
 def test_crear_cliente_claude_cli():

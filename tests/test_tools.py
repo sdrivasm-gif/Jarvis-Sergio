@@ -63,3 +63,11 @@ def test_definiciones_formato_neutro(tmp_path):
         "descripcion": "Herramienta de prueba.",
         "esquema": {"type": "object", "properties": {}, "required": []},
     }]
+
+
+def test_cinco_herramientas_y_confirmaciones():
+    herramientas = cargar_herramientas()
+    assert sorted(herramientas) == ["abrir_app", "buscar_archivos", "buscar_web", "hora", "notas"]
+    confirman = {n: m.requiere_confirmacion for n, m in herramientas.items()}
+    assert confirman == {"abrir_app": True, "buscar_archivos": False, "buscar_web": False,
+                         "hora": False, "notas": False}
