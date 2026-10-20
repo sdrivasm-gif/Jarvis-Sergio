@@ -1,9 +1,89 @@
 # Estado del bucle
 
-Fase actual: 5 — cerrada (rama `fase-3`; el commit y la etiqueta `v0.5-fase5` los hace la sesión principal; goal: goals/06-noche-fases-3-a-6.md)
-Último goal cerrado: goals/02-herramientas.md (commit 99f84ee)
+## Fase actual
+Goal: goals/06-noche-fases-3-a-6.md (fases 3 a 6). Rama `fase-3`. **Todas CERRADAS; ninguna fase BLOQUEADA; ningún push.**
+
+| Fase | Revisor | Commit y etiqueta |
+|---|---|---|
+| 3 (clima y Google) | APROBADO en la 2.ª vuelta | `v0.3-fase3` (hecho) |
+| 4 (memoria, recordatorios, /hoy) | APROBADO en la 2.ª vuelta | `v0.4-fase4` (hecho) |
+| 5 (voz) | APROBADO en la 1.ª vuelta | `v0.5-fase5` (hecho) |
+| 6 (UI HUD) | APROBADO en la 1.ª vuelta, con ajustes aplicados | `v0.6-fase6` (la hace la sesión principal) |
+
+Última salida de `pytest -q`: 404 passed, 1 skipped (test_voz_real, opcional), exit 0 sin claves
+Último goal anterior: goals/02-herramientas.md (commit 99f84ee). Siguiente: nada planificado; decide Sergio (ver PENDIENTE).
+
+## Qué quedó listo
+- **Fase 3:** `clima` (Open-Meteo, sin clave) y 7 herramientas Google (calendario, correo, Drive) con confirmación legible `[s/N]`; guardia de tests ampliada y test de claves.
+- **Fase 4:** memoria persistente con filtro de secretos, recordatorios de disparo único, `/hoy` y `parte_del_dia`; 19 herramientas, 8 con confirmación.
+- **Fase 5:** voz opcional (`--voz`): faster-whisper `base` local, SAPI, sounddevice, palabra de activación, confirmación por voz que falla a NO.
+- **Fase 6:** UI HUD local (`--ui`): servidor stdlib en 127.0.0.1 con token, `Sesion`, estados del círculo, confirmaciones con botones, panel Hoy y acceso directo `Jarvis.lnk`.
+
+## PENDIENTE PARA SERGIO (consolidada)
+**A. Preparación (una vez)**
+1. Añadir al final de `.env.example` (los agentes no pueden editarlo):
+   - `# JARVIS_CIUDAD=Piura`; `GOOGLE_CLIENT_ID=`, `GOOGLE_CLIENT_SECRET=`, `GOOGLE_REFRESH_TOKEN=` (vacías);
+   - comentadas: `# JARVIS_VOZ=off`, `# JARVIS_PALABRA_ACTIVACION=jarvis`, `# JARVIS_STT_MODELO=base`, `# JARVIS_VOZ_UMBRAL=400`, `# JARVIS_UI_PUERTO=0` (0 = puerto libre en cada arranque).
+2. Usar `LLM_PROVIDER=claude` u `openrouter` para tener herramientas: `claude-cli` no las tiene (ver pregunta en "Bloqueos / dudas").
+3. Credenciales de Google (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`): pasos en jarvis/README.md y en "Credenciales de Google" más abajo.
+4. Voz: `pip install -e ".[voz]"` (cientos de MB; sin ellos Jarvis sigue con texto). Modelo: (a) no hacer nada, se descargan ≈145 MB de Hugging Face la primera vez, o (b) descargar `config.json`, `model.bin`, `tokenizer.json` y `vocabulary.txt` de `Systran/faster-whisper-base` a una carpeta y poner `JARVIS_STT_MODELO=<carpeta>`. Si `base` entiende mal, probar `small` (≈485 MB, ~3 veces más lento).
+5. Comprobar voz SAPI en español: `powershell.exe -NoProfile -Command "Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).GetInstalledVoices().VoiceInfo | Select-Object Name, Culture"`. Jarvis elige `es-MX` o cualquier `es-*`; si no hay, añadir Español (México) con "Texto a voz" en Configuración > Hora e idioma (sin verificar). Plan B en la decisión 005.
+
+**B. Decisiones tuyas**
+- Fase 2: ¿dar herramientas a claude-cli (goal propio) o cambiar el proveedor por defecto? `buscar_web` sin confirmación (una línea para cambiarlo).
+- Fase 3: scope `drive` completo vs `drive.readonly` (se pierde `drive_compartir`); caducidad de 7 días del refresh token en modo Testing; si Jarvis podrá borrar correos o archivos de Drive; `calendario_borrar` y `drive_compartir` confirman un id, no el título (`ponytail:`).
+- Fase 4: (1) separar `memoria_guardar` con confirmación (riesgo de inyección vía correo); (2) en terminal el recordatorio avisa en el siguiente `tú>`, no en tiempo real (en voz y UI sí); (3) el filtro rechaza ante la duda ("la clave del éxito...") y no detecta una contraseña suelta sin etiqueta; (4) los últimos 20 recuerdos van al proveedor en cada turno.
+- Fase 5: (a) confirmación solo con "sí" o "confirmo" ("claro", "vale", "dale" cancelan); (b) no se interrumpe a Jarvis hablando (¿auriculares y añadirlo?); (c) la orden es solo lo dicho después de "Jarvis"; (d) si commitear los `voz_*.wav` que genera `scripts\generar_audios_prueba.py`; (e) Ctrl+C en modo voz corta la voz y cierra Jarvis (aceptado); (f) borrar los Protocol `Oyente`/`Hablante` y la guardia de `pyaudio` si sobran: la UI no los usa (envuelve los objetos), ya puedes decidir.
+- Fase 6: (a) ¿confirmar también por voz con `--ui --voz`? hoy solo botones; (b) ¿apagar Jarvis solo si la página deja de consultar? riesgo: Edge frena ventanas minimizadas; (c) ¿markdown básico en las respuestas? hoy texto plano; (d) ¿puerto fijo en vez de libre?; (e) el token aparece en la línea de comandos de `msedge.exe` (visible a programas de tu usuario): aceptado salvo aviso.
+
+**C. Ya sabido / aceptado**
+- Privacidad de voz: el audio no se guarda ni sale del equipo; la orden transcrita va al proveedor como el texto tecleado.
+- Siguen de la fase 1: ID por defecto de OpenRouter sin verificar; ninguna prueba llamó a una API real; deuda `ponytail:` (respuesta vacía tras herramientas, historial sin límite, confirmación solo por terminal).
+- Prueba manual de la fase 2 (apps, DuckDuckGo, personalidad) descrita en "Bloqueos / dudas".
+
+## Cómo probar cada cosa a mano
+Usa `LLM_PROVIDER=claude` u `openrouter`. Desde `C:\Users\rivas\Documents\jarvis-loop`.
+
+**Fase 3 (clima + Google)**
+- `.venv\Scripts\python -m jarvis`, pregunta "¿qué clima hace?".
+- Con credenciales: "¿qué eventos tengo hoy?"; crear un evento, enviar un correo, compartir y borrar deben pedir `[s/N]`; con "n" no hacen nada.
+
+**Fase 4 (memoria, recordatorios, /hoy)**
+- "recuérdame en 2 minutos tomar agua": espera y pulsa Enter; avisa una sola vez; reinicia y no se repite.
+- "recuerda que prefiero el té", reinicia y pregunta "¿qué prefiero tomar?".
+- "mi contraseña es X" debe rechazarse sin repetir el texto.
+- `/hoy` sin Google ("No disponible") y con Google.
+- "borra ese recuerdo" pide `[s/N]`.
+
+**Fase 5 (voz con micrófono)**
+- `.venv\Scripts\python -m jarvis --voz` (o `JARVIS_VOZ=on`).
+- "Jarvis, ¿qué hora es?" responde hablando; "Jarvis" a secas responde "¿Sí, señor?"; sin decir "Jarvis" no pasa nada.
+- "Jarvis, recuérdame en 1 minuto beber agua" y callarse: el aviso suena solo, una vez.
+- Evento de prueba: "no" o "sí, pero espera" no lo crea; "sí" lo crea. "Jarvis, salir" termina.
+- Ajuste: `JARVIS_VOZ_UMBRAL` (200 si no te oye; 800-1500 si se activa solo); variantes `JARVIS_PALABRA_ACTIVACION=jarvis,harvis,yarvis`.
+- Sin micrófono: `.venv\Scripts\python scripts\generar_audios_prueba.py --con-voz` y `$env:JARVIS_STT_MODELO="C:\modelos\faster-whisper-base"; .venv\Scripts\python -m pytest tests/test_voz_real.py -v` (requiere el modelo descargado).
+
+**Fase 6 (--ui y acceso directo)**
+- `.venv\Scripts\python -m jarvis --ui`: ventana de Edge sin barra, círculo, subtítulos, entrada y panel "Hoy"; la consola muestra `Jarvis UI en http://127.0.0.1:<puerto>/` sin token.
+- "¿qué hora es?" (círculo en "Pensando"); "/hoy" y los botones "Actualizar" y "Parte del día".
+- Crear un evento de prueba: caja Sí/No con foco en "No"; "No" no crea; 60 s sin respuesta cancela; "Sí" crea.
+- "recuérdame en 1 minuto beber agua": un aviso resaltado, sin escribir. Cerrar la consola: la ventana dice "Sin conexión con Jarvis".
+- Sin Edge debe abrir el navegador por defecto; si no abre nada, la consola muestra la URL completa.
+- Con voz: `.venv\Scripts\python -m jarvis --ui --voz` (círculo "Escuchando"/"Hablando"; confirmaciones solo con botones; si el micrófono falla, "La voz se apagó; sigo solo con texto.").
+- Acceso directo: `.venv\Scripts\python scripts\crear_acceso_directo.py` crea `Jarvis.lnk` en el escritorio (`--carpeta RUTA` para otra). Doble clic abre consola minimizada y ventana; para cerrar Jarvis, cierra la consola.
+- Seguridad (opcional): desde otra pestaña (F12) `fetch("http://127.0.0.1:<puerto>/api/estado").then(r => r.status)` debe fallar por CORS o dar 403, nunca 200.
+
+## Decisiones (docs/decisiones/)
+- 001-nucleo-fase-1.md
+- 002-herramientas-fase-2.md
+- 003-integraciones-fase-3.md
+- 004-memoria-recordatorios-hoy-fase-4.md
+- 005-voz-fase-5.md
+- 006-ui-hud-fase-6.md
 
 ## Hecho
+- Fase 6 (cerrada): revisor → APROBADO en la 1.ª vuelta, ajustes aplicados. `pytest -q`: 404 passed, 1 skipped (test_voz_real, opcional), exit 0 sin claves. Construido: UI HUD (`jarvis/ui/`): servidor `http.server` solo en 127.0.0.1 con token por sesión (Host, Origin y token comprobados, sin CORS ni logs), `Sesion` (estados reposo/escuchando/pensando/hablando, subtítulos, cola de entrada), confirmaciones con botones Sí/No (60 s sin respuesta = NO), panel Hoy, `--ui` (con `--voz`), Edge `--app` o navegador, y `scripts/crear_acceso_directo.py` (`Jarvis.lnk`). Ajustes del revisor: cerrojo en recordatorios, límite de longitud, "/hoy" desde la página y mensaje de error del script del acceso directo.
+- Fase 6 (diseño): pesado decidió una página local con estilo HUD: servidor `http.server` solo en 127.0.0.1, token por sesión en el fragmento de la URL y polling de `/api/estado` cada 500 ms. La UI alimenta el `conversar` de siempre con las piezas de una `Sesion` (`bucle.py` no cambia). La confirmación es con botones Sí/No en la página: sin respuesta en 60 s es NO. Con `--voz`, el círculo muestra cuándo escucha y cuándo habla. Se abre en ventana de Edge (`--app`) o, si no hay Edge, en el navegador, y hay un script que crea `Jarvis.lnk`. Diseño: docs/decisiones/006-ui-hud-fase-6.md. La especificación está abajo, en "Especificación fase 6".
 - Fase 5 (cerrada): revisor → APROBADO en la 1.ª vuelta. `pytest -q`: 305 passed, 1 skipped (tests/test_voz_real.py: no está faster_whisper), exit 0, sin claves. Construido: voz a texto con faster-whisper `base` (local), texto a voz con SAPI por `powershell.exe`, micrófono con sounddevice (`jarvis/voz.py`), activación por palabra ("Jarvis"), confirmación por voz que falla a NO (solo "sí"/"confirmo"), `--voz` o `JARVIS_VOZ=on` (si falla, sigue con texto) y 4 WAV de prueba en tests/audio/ (`scripts/generar_audios_prueba.py`).
 - Fase 5 (diseño): pesado decidió faster-whisper (`base`, local) para la voz a texto, la voz de Windows (SAPI vía `powershell.exe`, sin dependencias) para el texto a voz y sounddevice para el micrófono. La voz se conecta a `conversar` inyectando entrada, salida y confirmación, sin duplicar el bucle. Diseño: docs/decisiones/005-voz-fase-5.md. La especificación para ligero y constructor está abajo, en "Especificación fase 5".
 - Fase 4 (cerrada): revisor → 1.ª vuelta CAMBIOS REQUERIDOS (el filtro no veía el formato .env, `cuando=None`, registros dañados), 2.ª APROBADO. `pytest -q`: 221 passed, exit 0, sin claves. Diseño: docs/decisiones/004-memoria-recordatorios-hoy-fase-4.md. Construido:
@@ -25,7 +105,37 @@ Fase actual: 5 — cerrada (rama `fase-3`; el commit y la etiqueta `v0.5-fase5` 
 - Fase 2 (cierre): revisor de claude_cli.py → CAMBIOS REQUERIDOS (proceso `claude` huérfano si falla el stream; timeout sin nombre), corregido por constructor con tests. Herramientas 2 y 3 (ligero), 4 y 5, personalidad (`cargar_sistema`), aviso/sufijo de claude-cli y conftest con guardia (constructor), README (ligero). Revisor del diff → APROBADO; se aplicaron sus ajustes (guardia también sobre `subprocess.run`, `es_env` más amplio, `uddg` vacío, retoques de tests/doc).
 - Verificador (última pasada): `pytest -q` sin claves → 100 passed, exit 0; herramientas → `['abrir_app', 'buscar_archivos', 'buscar_web', 'hora', 'notas']`; personalidad.md sin cambios; sin `shell=True`; `datos/` en .gitignore y no creada; sin claves.
 
+# Pendiente por fase (versión original, histórico)
+
 ## PENDIENTE PARA SERGIO (acumulativo)
+**Fase 6** (diseño: docs/decisiones/006-ui-hud-fase-6.md)
+1. Prueba manual de la interfaz: `.venv\Scripts\python -m jarvis --ui`, con `LLM_PROVIDER=claude` u `openrouter` para tener herramientas.
+   - Se abre una ventana de Edge sin barra de direcciones, con el círculo, los subtítulos, la entrada y el panel "Hoy". En la consola aparece `Jarvis UI en http://127.0.0.1:<puerto>/`, **sin** el token.
+   - Escribe "¿qué hora es?". El círculo pasa a "Pensando" y la respuesta aparece como subtítulo. Mientras escribes, el círculo muestra "Escuchando" (efecto visual).
+   - El panel "Hoy": sin Google, "Eventos" y "Correos" dicen "No disponible: …". Prueba también "Actualizar" y "Parte del día".
+   - Pide crear un evento de prueba. Aparece la caja Sí/No con los datos, y el foco está en "No".
+     - Pulsa "No": no se crea.
+     - Repite y espera 60 s sin tocar nada: se cancela solo.
+     - Repite y pulsa "Sí": se crea.
+   - "recuérdame en 1 minuto beber agua": el aviso sale **una vez**, resaltado, en 1–2 s tras la hora, sin escribir nada.
+   - Cierra la consola: la ventana muestra "Sin conexión con Jarvis".
+2. Sin Edge (o renombrando `msedge.exe` en una prueba) debe abrir tu navegador por defecto. Si no se abre nada, la consola muestra la URL completa con el aviso "no la compartas".
+3. Acceso directo: `.venv\Scripts\python scripts\crear_acceso_directo.py`. Crea `Jarvis.lnk` en tu escritorio, también si está en OneDrive. Con doble clic se abre la consola minimizada y la ventana de Jarvis. Para cerrar Jarvis, cierra esa consola: cerrar la ventana de Edge **no** detiene Jarvis. Si quieres el acceso en otra carpeta, usa `--carpeta RUTA`.
+4. Con voz: `python -m jarvis --ui --voz`.
+   - El círculo debe estar en "Escuchando" mientras el micrófono está abierto y en "Hablando" mientras suena la voz.
+   - Lo que escribes en la página espera a que termine la escucha en curso (≤ 8 s).
+   - Las confirmaciones se hacen **solo con los botones**: Jarvis dice "Necesito tu confirmación en la pantalla".
+   - Si el micrófono falla, sale "La voz se apagó; sigo solo con texto." y la página sigue funcionando.
+5. Opcional, para comprobar la seguridad: con Jarvis abierto, en otra pestaña cualquiera (por ejemplo example.com) abre la consola de desarrollador (F12) y ejecuta `fetch("http://127.0.0.1:<puerto>/api/estado").then(r => r.status)`. Debe fallar (CORS) o dar 403, nunca 200.
+6. Añadir al final de `.env.example` (los agentes no pueden editarlo): `# JARVIS_UI_PUERTO=0` (0 = un puerto libre en cada arranque).
+7. **Decisiones tuyas:**
+   - (a) Con `--ui --voz`, ¿quieres confirmar también por voz ("sí"), además de los botones? Hoy solo valen los botones, por seguridad.
+   - (b) Cerrar la ventana no cierra Jarvis. ¿Quieres que se apague solo si la página deja de consultar durante un rato? Riesgo: Edge frena las ventanas minimizadas y podría apagarlo sin querer.
+   - (c) Las respuestas se muestran como texto plano (los `**` y `#` se ven tal cual). ¿Quieres markdown básico (negritas y listas)?
+   - (d) ¿Prefieres un puerto fijo en lugar de uno libre en cada arranque (por defecto, `JARVIS_UI_PUERTO=0`)?
+   - (e) El token de la sesión aparece en la línea de comandos de `msedge.exe`, que pueden ver los programas de tu usuario. Se acepta; avisa si no.
+8. Fase 5, punto 11: la UI no usa los Protocol `Oyente`/`Hablante` (envuelve los objetos), así que ya puedes decidir si se borran.
+
 **Fase 5** (diseño: docs/decisiones/005-voz-fase-5.md)
 1. Instalar los extras de voz: `pip install -e ".[voz]"` (faster-whisper y sounddevice; son del orden de cientos de MB entre ctranslate2, av y onnxruntime). Sin ellos, Jarvis sigue funcionando solo con texto.
 2. Modelo de voz a texto. Elige una de las dos opciones:
@@ -82,12 +192,742 @@ Fase actual: 5 — cerrada (rama `fase-3`; el commit y la etiqueta `v0.5-fase5` 
 - Tú: revisar el diff (`git diff` y `git status`) y la prueba manual de arriba. El commit y la etiqueta `v0.5-fase5` los hace la sesión principal (las fases 3, 4 y 5 pueden ir juntas en el working tree de `fase-3`).
 - Siguiente: goals/03-voz.md (reescribirlo con el equipo actual antes de lanzarlo).
 - Fase 5 (goal 06): el diseño está listo. Toca a ligero y constructor seguir el orden de "Especificación fase 5" (goals/03-voz.md queda reemplazado por el goal 06).
+- Fase 6 (goal 06): el diseño está listo. Toca a ligero y constructor seguir el orden de "Especificación fase 6".
 
 ## Bloqueos / dudas para el usuario
 - **PREGUNTA PARA EL USUARIO (claude-cli y herramientas):** con el proveedor por defecto (`claude-cli`) las cinco herramientas existen, pero el modelo no puede usarlas. En esta fase solo se avisa al arrancar y se le dice al modelo que no las tiene (decisión 002, punto 7). Para tu prueba manual de la fase 2, pon `LLM_PROVIDER=claude` (con ANTHROPIC_API_KEY) u `openrouter` (con OPENROUTER_API_KEY) en `.env`. ¿Quieres un goal propio para dar herramientas a claude-cli, o prefieres cambiar el proveedor por defecto?
 - **Para revisar (decisión de pesado, cambiar es una línea):** `buscar_web` no pide confirmación, porque solo lee y no tiene efectos, pero la consulta sale a DuckDuckGo. Si prefieres que pida confirmación en cada búsqueda, es `requiere_confirmacion = True` en jarvis/tools/buscar_web.py y ajustar su test.
 - Prueba manual solo tuya: que `Get-StartApps` y `os.startfile("shell:AppsFolder\\...")` abran tus apps, que DuckDuckGo responda sin captcha y que la personalidad (varias líneas) llegue entera a `claude -p`. Si algo falla, las alternativas están en la decisión 002, en Consecuencias.
 - Siguen de la fase 1: el ID por defecto de OpenRouter (`anthropic/claude-sonnet-5-5`) no está verificado; ninguna prueba llamó a una API real; hay deuda `ponytail:` (respuesta vacía tras herramientas, historial sin límite, confirmación solo por terminal).
+
+---
+
+# Especificación fase 6 (para ligero y constructor)
+
+Fuente: docs/decisiones/006-ui-hud-fase-6.md. Se mantienen las convenciones de las fases 2 a 5:
+- Nombres en español y `# ponytail: <límite>; <cómo mejorarlo>` en cada atajo.
+- TDD (primero el test que falla).
+- **Ningún efecto al importar.**
+- Datos de mentira (`@example.com`).
+- Los fakes se importan con `from clientes_falsos import ...`.
+
+Reglas propias de esta fase:
+- **Solo biblioteca estándar.** No se añade nada a `dependencies` ni a los extras. `jarvis/ui/*.py` solo importa la biblioteca estándar y `jarvis.*`.
+- **El host es la constante `HOST = "127.0.0.1"`.** Ninguna función acepta otro host, y `0.0.0.0` no aparece en el repositorio.
+- **El token** (`secrets.token_urlsafe(32)`, 43 caracteres) nunca va en una respuesta HTTP, en la query, en un log ni en `print`. Única excepción: `lanzar` muestra la URL completa si no pudo abrir ninguna ventana.
+- **Procesos:** siempre una lista de argumentos y nunca `shell=True`. Se resuelven al llamar (`abrir or subprocess.Popen`, `navegador or webbrowser.open`, `ejecutar or subprocess.run`), para que la guardia los intercepte.
+- **En los tests:**
+  - Ninguno abre navegador, Edge ni procesos, ni escribe fuera de `tmp_path`. Los sockets cliente solo van a 127.0.0.1, con el fixture `red_local`.
+  - Los hilos son `daemon=True`, con `join(timeout=2)` y la comprobación `not hilo.is_alive()`.
+  - Para esperar se usa `esperar(condicion, tiempo=2.0)`, que sondea cada 10 ms y falla con un mensaje si no se cumple. Se define en cada archivo de tests que lo usa. Nada de `sleep` fijo, salvo donde se indica.
+
+## Archivos
+
+| Archivo | Quién | Qué |
+|---|---|---|
+| `tests/conftest.py` + `tests/test_guardia.py` | constructor (PRIMERO) | bloquear `webbrowser.open*`; fixture `red_local` (solo 127.0.0.1) |
+| `jarvis/hoy.py` + `tests/test_hoy.py` | constructor (PRIMERO) | `contenido`, `encabezado` y `secciones`; `reunir` da exactamente lo mismo |
+| `jarvis/voz.py` + `tests/test_voz.py` | constructor (PRIMERO) | `motores(entorno)`; `preparar` lo usa |
+| `pyproject.toml` | ligero (PRIMERO) | paquete `jarvis.ui` y sus archivos estáticos |
+| `jarvis/ui/index.html`, `jarvis/ui/app.js`, `jarvis/ui/estilo.css` + `tests/test_ui_estaticos.py` | ligero | página HUD (contrato abajo) |
+| `scripts/crear_acceso_directo.py` + `tests/test_acceso_directo.py` | ligero | `Jarvis.lnk` mediante PowerShell, con un script constante |
+| `jarvis/ui/__init__.py` | constructor | solo el docstring `"""Interfaz local (HUD) de Jarvis."""` |
+| `jarvis/ui/sesion.py` + `tests/test_ui_sesion.py` | constructor | `Sesion` (estado, subtítulos, cola, confirmación), envoltorios de voz y piezas para `conversar` |
+| `jarvis/ui/servidor.py` + `tests/test_ui_servidor.py` | constructor | seguridad, `atender`, manejador, `crear_servidor`, puerto, Edge o navegador, `lanzar` |
+| `jarvis/__main__.py` + `tests/test_main.py` | constructor | `--ui`, con smoke tests |
+| `jarvis/README.md` | ligero (al final) | sección "Interfaz (HUD)" |
+
+No se tocan:
+- `jarvis/bucle.py`, `jarvis/personalidad.md`, `jarvis/config.py` y `jarvis/recordatorios.py`;
+- `jarvis/tools/` (siguen siendo 19 herramientas), `jarvis/llm/` y `jarvis/integrations/`;
+- `.env*` y `.gitignore`.
+
+## tests/conftest.py (constructor, primero)
+Arriba, tras los imports (añade `import webbrowser`):
+```python
+# Guardados al importar, antes de que la guardia los sustituya: solo los usa el fixture red_local.
+_CONECTAR_REAL = socket.socket.connect
+_HTTP_CONECTAR_REAL = http.client.HTTPConnection.connect
+```
+Al final de `sin_efectos_reales`:
+```python
+    for nombre in ("open", "open_new", "open_new_tab"):  # ningún test abre el navegador
+        monkeypatch.setattr(webbrowser, nombre, _prohibido)
+```
+Fixture nuevo (no autouse):
+```python
+@pytest.fixture
+def red_local(monkeypatch):
+    """Solo para los tests del servidor de la UI: deja conectar a 127.0.0.1; cualquier otro destino sigue prohibido."""
+    def conectar(sock, direccion, *args, **kwargs):
+        if not (isinstance(direccion, tuple) and direccion[:1] == ("127.0.0.1",)):
+            _prohibido()
+        return _CONECTAR_REAL(sock, direccion, *args, **kwargs)
+
+    monkeypatch.setattr(socket.socket, "connect", conectar)
+    monkeypatch.setattr(http.client.HTTPConnection, "connect", _HTTP_CONECTAR_REAL)  # conecta vía socket.connect (filtrado)
+```
+`connect_ex`, `urlopen`, los procesos y el navegador siguen bloqueados incluso con `red_local`.
+
+**tests/test_guardia.py** (nuevos):
+1. `test_bloquea_navegador`: `webbrowser.open("https://example.com")`, `open_new` y `open_new_tab` → `AssertionError` con "acción real".
+2. `test_local_bloqueado_sin_fixture`: un socket servidor en `("127.0.0.1", 0)` con `listen()`. `socket.create_connection(srv.getsockname(), timeout=1)` → `AssertionError` con "acción real". Cierra `srv` en un `finally`.
+3. `test_red_local_solo_127(red_local)`:
+   - Con el mismo servidor, `create_connection` funciona: se cierra la conexión y luego `srv`.
+   - `socket.create_connection(("192.0.2.1", 80), timeout=1)` → `AssertionError`.
+   - `http.client.HTTPSConnection("192.0.2.1", timeout=1).request("GET", "/")` → `AssertionError`.
+   - `socket.socket().connect_ex(("127.0.0.1", 1))` → `AssertionError`.
+
+Los 305 tests anteriores tienen que seguir en verde. Si cae alguno, se para y se avisa.
+
+## jarvis/hoy.py (constructor, primero)
+Se divide `reunir` sin cambiar ni un carácter de su salida. `seccion` desaparece, porque solo la usaba `reunir`.
+```python
+def contenido(obtener) -> str          # el cuerpo de la antigua seccion: try/except, y "Error: " → "No disponible: "
+def encabezado(ahora: datetime) -> str  # f"Parte del {DIAS[ahora.weekday()]} {ahora.date().isoformat()}, a las {ahora:%H:%M}."
+def secciones(ahora: datetime) -> list[tuple[str, str]]
+    # [("Eventos de hoy", contenido(...)), ("Correos sin leer", ...), ("Notas recientes", ...), ("Recordatorios de hoy", ...)]
+    # mismas lambdas y mismo orden que hoy
+def reunir(ahora: datetime) -> str
+    # "\n\n".join([encabezado(ahora)] + [f"## {t}\n{c}" for t, c in secciones(ahora)])
+```
+**tests/test_hoy.py**: los tests actuales no cambian. Uno nuevo, `test_secciones_sin_google(monkeypatch)`, con `sin_credenciales`:
+- `[t for t, _ in hoy.secciones(AHORA)] == ["Eventos de hoy", "Correos sin leer", "Notas recientes", "Recordatorios de hoy"]`;
+- `secciones[0][1] == SIN_GOOGLE`, `secciones[2][1] == "No hay notas."` y `hoy.encabezado(AHORA) == "Parte del martes 2026-10-20, a las 08:00."`.
+
+## jarvis/voz.py (constructor, primero)
+```python
+def motores(entorno) -> tuple[OyenteLocal, HablanteSAPI, list[str]]
+    # los pasos 1–3 actuales de preparar (palabras, umbral, sounddevice, transcriptor) con los MISMOS ErrorVoz;
+    # devuelve (OyenteLocal(transcribir, umbral=umbral), HablanteSAPI(), palabras). No muestra nada.
+def preparar(entorno, mostrar=print) -> dict
+    # oyente, hablante, palabras = motores(entorno); mostrar("Voz activada: ..."); return piezas_de_voz(oyente, hablante, palabras, mostrar)
+```
+**tests/test_voz.py**: `test_preparar` y `test_preparar_errores` no cambian. Uno nuevo, `test_motores(monkeypatch)`, con los mismos `sounddevice` y `faster_whisper` falsos que `test_preparar`:
+- `oyente, hablante, palabras = voz.motores({"JARVIS_VOZ_UMBRAL": "800"})`
+- `isinstance(oyente, voz.OyenteLocal)` y `oyente.umbral == 800`; `isinstance(hablante, voz.HablanteSAPI)` y `palabras == ["jarvis"]`.
+
+## pyproject.toml (ligero, primero)
+```toml
+[tool.setuptools]
+packages = ["jarvis", "jarvis.llm", "jarvis.tools", "jarvis.integrations", "jarvis.ui"]
+
+[tool.setuptools.package-data]
+"jarvis.ui" = ["index.html", "app.js", "estilo.css"]
+```
+
+## jarvis/ui/sesion.py (constructor)
+```python
+"""Estado compartido entre conversar (hilo principal) y el servidor de la UI (un hilo por petición)."""
+from __future__ import annotations
+# stdlib: contextlib, math, queue, secrets, threading, time
+from jarvis import voz
+from jarvis.bucle import legible, texto_confirmacion
+
+ESTADOS = ("reposo", "escuchando", "pensando", "hablando")
+QUIENES = ("usuario", "jarvis", "aviso", "sistema")
+MAX_MENSAJES = 200            # subtítulos guardados (los más recientes)
+ESPERA_ENTRADA = 1.0          # s: sin texto, entrada devuelve "" y conversar revisa los recordatorios
+TIEMPO_CONFIRMACION = 60.0    # s sin respuesta → NO
+TROZO_ESPERA = 0.5            # s: las esperas van en trozos para que Ctrl+C entre en Windows
+CONFIRMA_EN_PANTALLA = "Necesito tu confirmación en la pantalla."
+VOZ_APAGADA = "La voz se apagó; sigo solo con texto."
+
+class Sesion:
+    def __init__(self, token: str | None = None, espera_entrada: float = ESPERA_ENTRADA,
+                 tiempo_confirmacion: float = TIEMPO_CONFIRMACION)
+    # públicos: token, espera_entrada, tiempo_confirmacion, estado="reposo", ocupado=False, voz=False, cerrada=False
+    # privados: _cerrojo = threading.RLock(), _cola = queue.Queue(), _mensajes = [], _ultimo = 0,
+    #           _confirmacion = None, _id_confirmacion = 0, _respuesta = None, _respondida = threading.Event()
+    def poner_estado(self, estado: str) -> None
+    def durante(self, estado: str)                      # @contextlib.contextmanager
+    def anotar(self, quien: str, texto) -> dict
+    def anotar_linea(self, linea: str) -> None          # sirve de `salida` de conversar y de `mostrar` de voz
+    def enviar(self, texto: str) -> bool                # desde la página
+    def entrada(self, prompt: str = "", espera: float | None = None) -> str   # `entrada` de conversar
+    def ocupar(self, texto: str) -> str
+    def confirmar(self, nombre: str, argumentos: dict) -> bool                # `confirmar` de conversar
+    def responder(self, id_confirmacion, si) -> bool    # desde la página
+    def instantanea(self, desde: int = 0) -> dict       # GET /api/estado
+    def cerrar(self) -> None
+
+class OyenteConEstado:
+    def __init__(self, oyente, sesion: Sesion)
+    def escuchar(self) -> str | None    # with sesion.durante("escuchando"): return oyente.escuchar()
+class HablanteConEstado:
+    def __init__(self, hablante, sesion: Sesion)
+    def decir(self, texto: str) -> None # with sesion.durante("hablando"): hablante.decir(texto)
+
+def piezas_ui(sesion: Sesion) -> dict
+def piezas_ui_voz(sesion: Sesion, oyente, hablante, palabras: list[str]) -> dict
+```
+Comportamiento (todo lo que lee o cambia el estado compartido va bajo `_cerrojo`):
+- `__init__`: `self.token = token or secrets.token_urlsafe(32)`.
+- `poner_estado`: si `estado` no está en `ESTADOS` → `ValueError(f"estado desconocido: {estado}")`.
+- `durante(estado)`: guarda `anterior = self.estado`, llama a `poner_estado(estado)` y hace `yield`. En un `finally`, `poner_estado(anterior)`, también si hay una excepción.
+- `anotar(quien, texto)`: si `quien` no está en `QUIENES` → `ValueError`. Hace `_ultimo += 1` y añade `{"id": _ultimo, "quien": quien, "texto": str(texto)}`. Luego `del _mensajes[:-MAX_MENSAJES]` y devuelve el mensaje.
+- `anotar_linea(linea)`:
+  - empieza por `"jarvis> Recordatorio ("` → `anotar("aviso", linea.removeprefix("jarvis> "))`
+  - empieza por `"jarvis> "` → `("jarvis", sin el prefijo)`
+  - empieza por `"tú (voz)> "` → `("usuario", sin el prefijo)`
+  - cualquier otra → `("sistema", linea)`
+- `enviar(texto)`:
+  - Si `cerrada`, `ocupado` o la cola no está vacía → `False`.
+  - Si no, hace `ocupado = True`, `anotar("usuario", texto.strip())` y `_cola.put(texto.strip())`, y devuelve `True`.
+- `entrada(prompt="", espera=None)`:
+  1. Si `cerrada` → `raise EOFError` (conversar se despide).
+  2. Si la cola está vacía, `ocupado = False`. En cualquier caso, `estado = "reposo"`.
+  3. `espera = self.espera_entrada if espera is None else espera`. Con `espera > 0`, `_cola.get(timeout=espera)`; con 0, `get_nowait()`. `queue.Empty` → `""`.
+  4. Si llegó texto → `return self.ocupar(texto)`.
+- `ocupar(texto)`: si hay texto, `ocupado = True` y `estado = "pensando"`. Devuelve `texto` tal cual (también `""` o `None`).
+- `confirmar(nombre, argumentos)`:
+  1. `texto = texto_confirmacion(nombre, argumentos).removesuffix("[s/N] ").rstrip("\n")`.
+  2. Bajo el cerrojo: `_id_confirmacion += 1`, `_confirmacion = {"id": _id_confirmacion, "texto": texto, "segundos": math.ceil(self.tiempo_confirmacion)}`, `_respuesta = None` y `_respondida.clear()`.
+  3. `limite = time.monotonic() + tiempo_confirmacion`. En un `try`, `while not cerrada and not _respondida.is_set()`: si `resta = limite - time.monotonic()` es ≤ 0, `break`; si no, `_respondida.wait(min(TROZO_ESPERA, resta))`.
+  4. En el `finally`, bajo el cerrojo: `respondida = _respondida.is_set()`, `si = respondida and _respuesta is True` y `_confirmacion = None`.
+  5. Anota en `sistema` (`n = legible(nombre)`):
+     - si `si`: `f"Confirmado: {n}."`
+     - si se respondió que no: `f"Cancelado: {n}."`
+     - si no hubo respuesta (o se cerró): `f"Sin respuesta en {segundos} s: {n} cancelado."`
+  6. Devuelve `si`. Con un Ctrl+C dentro de la espera, el `finally` limpia la confirmación y la excepción sigue su camino.
+- `responder(id_confirmacion, si)`:
+  - Si no hay confirmación, el id no coincide o ya se respondió → `False`.
+  - Si no: `_respuesta = (si is True)`, `_respondida.set()` y devuelve `True`. Así un `"sí"` o un `1` cuentan como NO.
+- `instantanea(desde=0)`: devuelve exactamente estas claves:
+  - `{"estado", "ocupado", "voz", "confirmacion", "mensajes", "ultimo"}`
+  - `confirmacion` es una copia de `_confirmacion` si está pendiente y sin responder; si no, `None`.
+  - `mensajes` son copias de los que tienen `id > desde`, y `ultimo = _ultimo`.
+- `cerrar()`: `cerrada = True`. La siguiente `entrada` lanza `EOFError`, y una confirmación pendiente acaba en ≤ 0,5 s como NO.
+- `piezas_ui(sesion)` → `{"entrada": sesion.entrada, "salida": sesion.anotar_linea, "confirmar": sesion.confirmar, "fragmento": None}`.
+- `piezas_ui_voz(sesion, oyente, hablante, palabras)`:
+  - Primero: `sesion.voz = True`, `oyente = OyenteConEstado(oyente, sesion)`, `hablante = HablanteConEstado(hablante, sesion)`, `entrada_voz = voz.entrada_por_voz(oyente, hablante, palabras, sesion.anotar_linea)` y `activa = True`.
+  - `entrada(prompt="")`:
+    1. Si `not activa` → `return sesion.entrada(prompt)`.
+    2. `texto = sesion.entrada(prompt, espera=0)`. Si hay texto, lo devuelve: lo escrito en la página tiene prioridad.
+    3. `try: return sesion.ocupar(entrada_voz(prompt))`.
+    4. `except EOFError`: si `sesion.cerrada`, `raise`. Si no, `activa = False`, `sesion.voz = False`, `sesion.anotar("sistema", VOZ_APAGADA)` y `return ""`. Si el micrófono se rompe, Jarvis no se cierra.
+  - `confirmar(nombre, argumentos)`: si `activa`, `voz.decir_sin_fallar(hablante, CONFIRMA_EN_PANTALLA, sesion.anotar_linea)`. Después `return sesion.confirmar(nombre, argumentos)`. **Siempre se confirma con los botones.**
+  - Devuelve `{"entrada": entrada, "salida": voz.salida_por_voz(hablante, sesion.anotar_linea), "confirmar": confirmar, "fragmento": None}`.
+- `# ponytail:`
+  - con voz, el texto de la página espera a que termine la escucha en curso (≤ 8 s); cortar la escucha cuando llegue texto.
+  - los subtítulos son texto plano (sin markdown).
+  - el historial de `conversar` sigue sin límite.
+
+## Contrato HTTP (lo implementa el constructor y lo usa ligero)
+Todas las respuestas llevan `CABECERAS_SEGURIDAD` y JSON en utf-8 (`ensure_ascii=False`). Los errores son `{"error": "<texto>"}` y nunca repiten lo recibido. Las comprobaciones, en este orden:
+
+| Comprobación | Dónde | Si falla |
+|---|---|---|
+| `Host` == `127.0.0.1:<puerto>` exacto | todas las rutas | 403 `{"error": "host no permitido"}` |
+| la ruta existe (`urlsplit(objetivo).path`; la query se ignora salvo `desde`) | todas | 404 `{"error": "no existe"}` |
+| `Origin` ausente o == `http://127.0.0.1:<puerto>`; en POST, obligatorio | `/api/*` | 403 `{"error": "origen no permitido"}` |
+| `Sec-Fetch-Site` ausente o == `same-origin` | `/api/*` | 403 `{"error": "origen no permitido"}` |
+| `X-Jarvis-Token` == token (`hmac.compare_digest` sobre bytes utf-8, `errors="replace"`) | `/api/*` | 403 `{"error": "token no válido"}` |
+| método correcto | todas | 405 `{"error": "método no permitido"}` |
+| `Content-Length` presente, dígitos ASCII, ≤ `MAX_CUERPO` (16384); sin `Transfer-Encoding` | POST, **antes de leer** el cuerpo | 411 / 400 / 413 |
+| `Content-Type` (antes de `;`, en minúsculas) == `application/json` | POST | 415 `{"error": "se espera application/json"}` |
+| el cuerpo es JSON (utf-8) y un objeto | POST | 400 `{"error": "JSON no válido"}` (también con `RecursionError`) |
+
+Rutas:
+- `GET /` → `index.html` (`text/html; charset=utf-8`).
+- `GET /app.js` → `text/javascript; charset=utf-8`.
+- `GET /estilo.css` → `text/css; charset=utf-8`.
+- Los estáticos no piden token (no contienen nada secreto), pero sí el `Host`. Cualquier otra ruta da 404 (no se sirve ninguna carpeta).
+- `GET /api/estado?desde=N` → 200 `{"estado": "reposo"|"escuchando"|"pensando"|"hablando", "ocupado": bool, "voz": bool, "confirmacion": null | {"id": int, "texto": str, "segundos": int}, "mensajes": [{"id": int, "quien": "usuario"|"jarvis"|"aviso"|"sistema", "texto": str}], "ultimo": int}`. `desde` (por defecto 0) son de 1 a 12 dígitos ASCII; si no → 400 `{"error": "desde no válido"}`.
+- `GET /api/hoy` → 200 `{"titulo": hoy.encabezado(ahora), "secciones": [{"titulo": str, "texto": str}, ×4]}`, con `ahora = reloj()` una sola vez.
+- `POST /api/mensaje` `{"texto": str}`:
+  - `texto` debe ser un `str` con algo más que espacios y ≤ `MAX_TEXTO` (4000) caracteres; si no → 400 `{"error": "texto vacío o de más de 4000 caracteres"}`.
+  - Si `sesion.enviar` da False → 409 `{"error": "Jarvis está ocupado"}`.
+  - Si va bien → 202 `{"ok": true}`. La respuesta llega después por `/api/estado`.
+  - `"/hoy"` es un texto más: lo resuelve `conversar`.
+- `POST /api/confirmar` `{"id": int, "si": bool}`:
+  - Si `type(id) is not int` o `type(si) is not bool` → 400 `{"error": "se espera {\"id\": entero, \"si\": true|false}"}`.
+  - Si `sesion.responder` da False → 409 `{"error": "no hay esa confirmación pendiente"}`.
+  - Si va bien → 200 `{"ok": true}`.
+- No hay `OPTIONS` ni CORS: `BaseHTTPRequestHandler` responde 501 a los métodos que no existen.
+
+## jarvis/ui/servidor.py (constructor)
+```python
+"""Servidor local de la interfaz HUD: solo 127.0.0.1, token por sesión, sin CORS ni logs."""
+from __future__ import annotations
+# stdlib: hmac, json, os, shutil, socketserver, subprocess, sys, threading, webbrowser, dataclasses,
+#         datetime, http.server (BaseHTTPRequestHandler, ThreadingHTTPServer), pathlib, urllib.parse (parse_qs, urlsplit)
+from jarvis import hoy, voz
+from jarvis.bucle import conversar
+from jarvis.ui.sesion import Sesion, piezas_ui, piezas_ui_voz
+
+HOST = "127.0.0.1"
+PUERTO_POR_DEFECTO = 0            # 0 = un puerto libre en cada arranque
+MAX_CUERPO = 16_384
+MAX_TEXTO = 4000
+TIEMPO_SOCKET = 15                # s por conexión (una conexión lenta no retiene un hilo para siempre)
+CARPETA = Path(__file__).parent
+CABECERA_TOKEN = "X-Jarvis-Token"
+ESTATICOS = {"/": ("index.html", "text/html; charset=utf-8"),
+             "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+             "/estilo.css": ("estilo.css", "text/css; charset=utf-8")}
+RUTAS_API = {"/api/estado": "GET", "/api/hoy": "GET", "/api/mensaje": "POST", "/api/confirmar": "POST"}
+CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; "
+       "base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+CABECERAS_SEGURIDAD = {"Content-Security-Policy": CSP, "X-Content-Type-Options": "nosniff",
+                       "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "Cache-Control": "no-store",
+                       "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Resource-Policy": "same-origin"}
+ARGS_VENTANA = ("--window-size=1100,720",)
+
+class ErrorUI(Exception): ...                       # configuración no válida (puerto)
+class ErrorHTTP(Exception):
+    def __init__(self, codigo: int, mensaje: str)   # super().__init__(mensaje); self.codigo = codigo
+
+@dataclass
+class RespuestaHTTP:
+    codigo: int
+    cabeceras: dict[str, str]
+    cuerpo: bytes
+
+def respuesta_json(codigo: int, datos) -> RespuestaHTTP   # {**CABECERAS_SEGURIDAD, "Content-Type": "application/json; charset=utf-8"}
+def error(codigo: int, mensaje: str) -> RespuestaHTTP     # respuesta_json(codigo, {"error": mensaje})
+def puerto_de(entorno) -> int
+def longitud(cabeceras) -> int                            # ErrorHTTP 411 / 400 / 413
+def comprobar_api(sesion, metodo: str, cabeceras, puerto: int) -> None   # ErrorHTTP 403
+def leer_json(cabeceras, cuerpo: bytes) -> dict           # ErrorHTTP 415 / 413 / 400
+def atender(sesion, metodo: str, objetivo: str, cabeceras, cuerpo: bytes, puerto: int,
+            reloj=datetime.now) -> RespuestaHTTP           # pura: sin sockets; captura ErrorHTTP → error(...)
+class Manejador(BaseHTTPRequestHandler): ...
+class ServidorUI(ThreadingHTTPServer): ...
+def crear_servidor(sesion, puerto: int = PUERTO_POR_DEFECTO) -> ServidorUI
+def buscar_edge(entorno=None, which=shutil.which) -> str | None
+def abrir_ventana(url: str, buscar=None, abrir=None, navegador=None) -> bool
+def lanzar(cliente, herramientas: dict, entorno, con_voz: bool = False, mostrar=print) -> int
+```
+- `cabeceras` es cualquier cosa con `.get(nombre)`. El manejador le pasa `self.headers` (no distingue mayúsculas) y los tests, un `dict` con los nombres en su forma canónica (`"Host"`, `"Origin"`, `"X-Jarvis-Token"`, `"Content-Type"`, `"Content-Length"`, `"Sec-Fetch-Site"`, `"Transfer-Encoding"`).
+- `puerto_de(entorno)`:
+  - Toma `(entorno.get("JARVIS_UI_PUERTO") or "").strip()`. Vacío → 0.
+  - Valen los dígitos ASCII con valor 0 o entre 1024 y 65535.
+  - Con cualquier otra cosa → `ErrorUI(f"JARVIS_UI_PUERTO='{valor}' no es válido; usa 0 (libre) o un entero entre 1024 y 65535.")`.
+- `longitud`:
+  - Con `Transfer-Encoding` → 411 `"se necesita Content-Length"`. Sin `Content-Length` → 411, con el mismo texto.
+  - Si no son dígitos ASCII (tras `strip`) → 400 `"Content-Length no válido"`.
+  - Si `> MAX_CUERPO` → 413 `"cuerpo de más de 16384 bytes"`.
+- `leer_json`:
+  - Primero el `Content-Type` (415). Después `len(cuerpo) > MAX_CUERPO` → 413.
+  - `json.loads(cuerpo.decode("utf-8"))`; con `UnicodeDecodeError`, `ValueError` o `RecursionError` → 400. Si no es un `dict` → 400.
+- `atender` sigue la tabla del contrato en ese orden. Los estáticos se leen en cada petición: `(CARPETA / nombre).read_bytes()`.
+- `Manejador`:
+  - Atributos: `server_version = "Jarvis"`, `sys_version = ""` y `timeout = TIEMPO_SOCKET`.
+  - `log_message(self, formato, *args): pass`, con el comentario `# sin logs: ni rutas ni cabeceras salen por consola`.
+  - `do_GET` → `_responder(b"")`.
+  - `do_POST`:
+    - `try: n = longitud(self.headers)`, y con `ErrorHTTP` → `_enviar(error(...))` y `return`, **sin leer el cuerpo**.
+    - Si no hubo error → `_responder(self.rfile.read(n))`.
+  - `_responder(cuerpo)`: `atender(self.server.sesion, self.command, self.path, self.headers, cuerpo, self.server.server_address[1])`. Cualquier `Exception` → `error(500, "error interno")`, sin traza.
+  - `_enviar(r)`: `send_response(r.codigo)`, cada cabecera de `r.cabeceras`, `Content-Length`, `end_headers()` y `wfile.write(r.cuerpo)`.
+  - HTTP/1.0 (por defecto): una petición por conexión.
+- `ServidorUI(ThreadingHTTPServer)`:
+  - Atributos:
+    - `allow_reuse_address = False`, con el comentario `# en Windows, SO_REUSEADDR dejaría a otro proceso quedarse con el puerto`.
+    - `daemon_threads = True`.
+  - `__init__(self, sesion, puerto)`: `self.sesion = sesion` y `super().__init__((HOST, puerto), Manejador)`.
+  - `server_bind(self)`: `socketserver.TCPServer.server_bind(self)` y luego `self.server_name, self.server_port = HOST, self.server_address[1]`. Así se evita el `socket.getfqdn` de `HTTPServer.server_bind`, una búsqueda DNS inversa que no hace falta.
+  - `handle_error(self, request, client_address)`: si `sys.exc_info()[1]` no es `ConnectionError` ni `TimeoutError` → `print(f"(UI) error atendiendo una petición: {type(e).__name__}", file=sys.stderr)`. Nunca imprime la traza ni la petición.
+- `crear_servidor(sesion, puerto=0)` → `ServidorUI(sesion, puerto)`. Solo recibe esos dos parámetros: no se le puede pasar otro host.
+- `buscar_edge(entorno=None, which=shutil.which)`:
+  - `entorno = os.environ if entorno is None else entorno`.
+  - Si `which("msedge")` da algo, lo devuelve.
+  - Si no, por cada variable de `("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")` que esté en `entorno`, prueba `Path(valor, "Microsoft", "Edge", "Application", "msedge.exe")`. Devuelve `str(ruta)` de la primera que cumpla `.is_file()`.
+  - Si no encuentra ninguna, `None`.
+- `abrir_ventana(url, buscar=None, abrir=None, navegador=None)`:
+  1. `ruta = (buscar or buscar_edge)()`.
+  2. Si hay ruta: `try: (abrir or subprocess.Popen)([ruta, f"--app={url}", *ARGS_VENTANA], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); return True`, y con `OSError` sigue al paso 3.
+  3. `try: return bool((navegador or webbrowser.open)(url))`, y con `webbrowser.Error` → `False`. **Solo se captura `webbrowser.Error`**, así la guardia de los tests no queda tapada.
+- `lanzar(cliente, herramientas, entorno, con_voz=False, mostrar=print)`, en este orden:
+  1. `puerto = puerto_de(entorno)`; con `ErrorUI` → `print(e, file=sys.stderr)` y `return 1`.
+  2. `sesion = Sesion()` y `piezas = piezas_ui(sesion)`.
+  3. Si `con_voz`:
+     - `try: oyente, hablante, palabras = voz.motores(entorno)` y `piezas = piezas_ui_voz(sesion, oyente, hablante, palabras)`.
+     - Después, `aviso = f"Voz activada: di «{palabras[0]}» y tu petición."`, `mostrar(aviso)` y `sesion.anotar("sistema", aviso)`.
+     - `except voz.ErrorVoz as e: print(f"Voz desactivada: {e} Sigo solo con texto.", file=sys.stderr)`.
+  4. `try: servidor = crear_servidor(sesion, puerto)`; con `OSError as e` → `print(f"No pude abrir el puerto {puerto}: {e}. Prueba con JARVIS_UI_PUERTO=0.", file=sys.stderr)` y `return 1`.
+  5. `threading.Thread(target=servidor.serve_forever, name="jarvis-ui", daemon=True).start()`.
+  6. `base = f"http://{HOST}:{servidor.server_address[1]}/"` y `url = base + "#" + sesion.token`.
+  7. `mostrar(f"Jarvis UI en {base} — cierra esta consola o pulsa Ctrl+C para salir.")` (**sin** el token).
+  8. Si `not abrir_ventana(url)` → `mostrar(f"No pude abrir una ventana. Abre esta dirección en el navegador (lleva el token de esta sesión; no la compartas): {url}")`.
+  9. `try: conversar(cliente, herramientas, **piezas)`, y en el `finally`: `servidor.shutdown()` y `servidor.server_close()`.
+  10. `return 0`.
+
+  `conversar`, `crear_servidor` y `abrir_ventana` se usan por su nombre de módulo, para que los tests los parcheen en `jarvis.ui.servidor`.
+- `# ponytail:`
+  - cerrar la ventana no detiene Jarvis (cerrar la consola o Ctrl+C);
+  - el token aparece en la línea de comandos de `msedge.exe`;
+  - sin icono propio.
+
+## jarvis/__main__.py (constructor)
+- `from jarvis.ui import servidor as ui`.
+- Después del aviso de claude-cli y **antes** de preparar la voz de terminal:
+```python
+    if "--ui" in argv:  # la página local; con --voz también escucha y habla
+        return ui.lanzar(crear_cliente(config), cargar_herramientas(), os.environ, con_voz=voz.activada(argv, os.environ))
+```
+- Actualiza el `ponytail:` de los argumentos desconocidos (ya existe `--ui`). Sin `--ui`, todo sigue igual: los tests actuales de test_main pasan sin tocarlos.
+
+## Frontend: jarvis/ui/index.html, app.js, estilo.css (ligero)
+Restricciones, que comprueba `test_ui_estaticos.py`:
+- Sin CDN, sin fuentes externas, sin `http://` ni `https://`, sin `@import`, `url(` ni `@font-face`. Fuentes del sistema: `"Cascadia Mono", Consolas, "Segoe UI", monospace`.
+- `index.html`: sin `<style>`, sin script en línea, sin atributos `style=` ni `on*=` (la CSP los bloquearía). Un solo `<script src="/app.js" defer></script>` y `<link rel="stylesheet" href="/estilo.css">`. `<html lang="es">` y `<meta charset="utf-8">`.
+- `app.js`:
+  - Prohibido: `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval(`, `new Function`, `localStorage`, `javascript:` y `setTimeout`/`setInterval` con un string.
+  - Todo texto se pone con `textContent`.
+  - Los únicos literales que empiezan por `/` son `/api/estado?desde=`, `/api/mensaje`, `/api/confirmar` y `/api/hoy`.
+
+Ids (contrato entre el HTML y el JS):
+
+| Id | Elemento | Qué es |
+|---|---|---|
+| `nucleo` | `canvas` 360×360, `aria-hidden="true"` | el círculo |
+| `estado` | `p`, `role="status"` | la etiqueta del estado |
+| `subtitulos` | `section`, `aria-live="polite"` | los subtítulos |
+| `formulario` | `form` | la entrada |
+| `texto` | `input`, `maxlength="4000"`, `autocomplete="off"` | el campo de texto |
+| `enviar` | `button` | enviar |
+| `nota` | `p`, `role="status"` | mensajes breves ("Jarvis está ocupado…") |
+| `panel` | `aside` | el panel |
+| `titulo-hoy` | `h2` | el título del panel |
+| `secciones` | `div` | las secciones del día |
+| `actualizar` | `button` | actualizar el panel |
+| `parte` | `button` | "Parte del día" |
+| `confirmacion` | `div`, `hidden`, `role="alertdialog"` | la caja de confirmación |
+| `confirmacion-texto` | `pre` | el texto que se confirma |
+| `confirmacion-cuenta` | `p` | la cuenta atrás |
+| `si` | `button` | "Sí, ejecutar" |
+| `no` | `button` | "No" |
+| `aviso-conexion` | `p`, `hidden` | el aviso de desconexión |
+
+Comportamiento de `app.js`:
+1. **Token:**
+   - `const TOKEN = location.hash.slice(1) || sessionStorage.getItem("jarvis_token") || "";`. Si hay token, `sessionStorage.setItem("jarvis_token", TOKEN)` y `history.replaceState(null, "", location.pathname)`.
+   - Sin token: muestra en `#aviso-conexion` "Falta el token: abre Jarvis con python -m jarvis --ui" y no hace ninguna petición.
+2. **`api(metodo, ruta, cuerpo)`:**
+   - `fetch(ruta, {method, cache: "no-store", headers: {"X-Jarvis-Token": TOKEN}})`.
+   - En POST, además `"Content-Type": "application/json"` y `body: JSON.stringify(cuerpo)`.
+   - Devuelve `{status, datos}`.
+3. **Sondeo:**
+   - `GET /api/estado?desde=<ultimo>` cada 500 ms, con una cadena de `setTimeout` (no `setInterval`) para que no se solapen.
+   - Si falla: muestra `#aviso-conexion` "Sin conexión con Jarvis (¿cerraste la consola?)", pone la clase `desconectado` y reintenta cada 2 s. Al volver, lo oculta.
+4. **Subtítulos:**
+   - Por cada mensaje nuevo: un `div.mensaje.<quien>` con un `span.quien` ("Tú", "Jarvis", "Aviso" o "Sistema") y un `span.cuerpo` (`textContent`, `white-space: pre-wrap`).
+   - Se guardan como máximo 50 nodos y la lista baja sola al final.
+   - Los `aviso` se resaltan.
+5. **Estado visual:** `document.body.className = <estado>`, y `#estado` dice "En reposo", "Escuchando", "Pensando" o "Hablando".
+   - Si el servidor dice `reposo` y `voz` es false, se simula: "escuchando" mientras `#texto` tiene foco y algo escrito; "hablando" durante `min(6000, 40 * longitud)` ms tras un mensaje nuevo de `jarvis` o `aviso`.
+   - Mientras `ocupado`, `#texto` y `#enviar` quedan desactivados.
+6. **Envío:**
+   - `submit` → `preventDefault`. Si el texto está vacío, no hace nada.
+   - `POST /api/mensaje`: con 202, vacía el campo; con 409, `#nota` = "Jarvis está ocupado; espera a que termine."; con otro error, muestra `datos.error`.
+   - `#parte` envía `"/hoy"`.
+7. **Confirmación:**
+   - Si `confirmacion` no es null y su `id` es distinto del que se muestra, se muestra `#confirmacion`:
+     - `#confirmacion-texto.textContent = texto`;
+     - cuenta atrás local desde `segundos` en `#confirmacion-cuenta`;
+     - **foco en `#no`**.
+   - `#si` → `POST /api/confirmar {id, si: true}` y `#no` → `{id, si: false}`. Al pulsar, los dos botones se desactivan. Escape equivale a `#no`.
+   - Se oculta cuando `confirmacion` vuelve a ser null.
+   - Nunca hay un "sí" por defecto: Enter no confirma.
+8. **Panel:**
+   - `GET /api/hoy` al cargar, cada 5 minutos y con `#actualizar`.
+   - `#titulo-hoy` = `titulo`. Por cada sección: un `h3` y un `pre` con `textContent`.
+   - La clase `no-disponible` va en las que empiezan por "No disponible".
+9. **Canvas:** `requestAnimationFrame`, escalado por `devicePixelRatio`. Lleva:
+   - un anillo exterior con 60 marcas que gira despacio;
+   - tres arcos concéntricos a velocidades distintas;
+   - un núcleo con degradado radial que late;
+   - en `escuchando` y `hablando`, un anillo de 64 barras con amplitud pseudoaleatoria suavizada (grande al hablar).
+
+   Colores por estado: reposo `#29f0ff` (lento); escuchando `#3dffb0`; pensando `#ffb02e` (arcos rápidos y discontinuos); hablando `#7af7ff` (latido a ~4 Hz); desconectado gris. Con `prefers-reduced-motion`, la velocidad baja a ×0,2 y no hay barras aleatorias.
+
+`estilo.css`, estilo HUD:
+- Fondo `#03080f` con una rejilla sutil (`linear-gradient`) y texto `#bfefff`.
+- Bordes finos cian con brillo (`box-shadow`) y esquinas en escuadra.
+- Dos columnas: el HUD (círculo, estado, subtítulos y entrada) y el panel (≥ 280 px). Por debajo de 800 px, una columna.
+- La confirmación es un modal centrado, con borde ámbar.
+- Las clases `.reposo`, `.escuchando`, `.pensando`, `.hablando` y `.desconectado` en `body` cambian el color de acento (variable CSS `--acento`).
+- `@media (prefers-reduced-motion: reduce)` desactiva las animaciones CSS.
+- Contraste AA en el texto.
+
+## scripts/crear_acceso_directo.py (ligero)
+```python
+"""Crea el acceso directo «Jarvis» en el escritorio: abre la interfaz (python -m jarvis --ui) con la consola minimizada.
+Uso: .venv\\Scripts\\python scripts\\crear_acceso_directo.py [--carpeta RUTA]"""
+RAIZ = Path(__file__).resolve().parents[1]
+NOMBRE = "Jarvis.lnk"
+# Script constante: las rutas llegan por variables de entorno, así que no hay comillas que escapar ni nada que inyectar.
+SCRIPT_LNK = (
+    "$ErrorActionPreference = 'Stop'\n"
+    "$carpeta = if ($env:JARVIS_LNK_CARPETA) { $env:JARVIS_LNK_CARPETA } else { [Environment]::GetFolderPath('Desktop') }\n"
+    "$ruta = Join-Path $carpeta $env:JARVIS_LNK_NOMBRE\n"
+    "$a = (New-Object -ComObject WScript.Shell).CreateShortcut($ruta)\n"
+    "$a.TargetPath = $env:JARVIS_LNK_PYTHON\n"
+    "$a.Arguments = '-m jarvis --ui'\n"
+    "$a.WorkingDirectory = $env:JARVIS_LNK_RAIZ\n"
+    "$a.WindowStyle = 7\n"
+    "$a.Description = 'Jarvis: interfaz local'\n"
+    "$a.Save()\n"
+    "Write-Output $ruta\n"
+)
+def comando() -> list[str]   # ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", b64(SCRIPT_LNK en utf-16-le)]
+def variables(python: Path, raiz: Path, carpeta: Path | None) -> dict[str, str]
+    # {"JARVIS_LNK_PYTHON": str(python), "JARVIS_LNK_RAIZ": str(raiz), "JARVIS_LNK_CARPETA": str(carpeta) if carpeta else "", "JARVIS_LNK_NOMBRE": NOMBRE}
+def crear(carpeta: Path | None = None, python: Path | None = None, ejecutar=None) -> Path
+def main(argv: list[str] | None = None) -> int
+```
+- `crear`:
+  - `python = python or Path(sys.executable)`. Si se llama `pythonw.exe`, se cambia por `python.exe`, porque Jarvis necesita consola para Ctrl+C y para cerrarse.
+  - Si `not python.is_file()` → `SystemExit(f"No encuentro {python}.")`.
+  - `r = (ejecutar or subprocess.run)(comando(), env={**os.environ, **variables(python, RAIZ, carpeta)}, check=True, capture_output=True, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))`.
+  - `return Path(r.stdout.strip())`.
+- `main`: `argparse` con `--carpeta` (`type=Path`). Imprime `f"Acceso directo creado: {ruta}"` y "Ábrelo con doble clic. Para cerrar Jarvis, cierra su consola (minimizada en la barra de tareas).". Devuelve 0.
+- `if __name__ == "__main__": sys.exit(main())`.
+- `# ponytail:`
+  - sin icono propio;
+  - si la ruta tiene caracteres raros, la salida de PowerShell puede verse mal en la consola (solo afecta a lo que se muestra).
+- Lo ejecuta Sergio a mano. Ejecutarlo ya es la orden explícita; no lo usa ninguna herramienta de Jarvis.
+
+## Tests
+
+**tests/test_ui_sesion.py** (constructor). Fixtures y datos:
+- `from jarvis import bucle, recordatorios` y `from jarvis.ui import sesion as ui_sesion`.
+- `ARGS = {"para": "ana@example.com", "cuerpo": "Hola\nAna"}` y `TEXTO_CONF = "¿Ejecutar correo_enviar?\n  para: ana@example.com\n  cuerpo: Hola\n    Ana"`.
+- `herramienta_enviar(ejecutadas)` es igual que en test_voz.
+- `en_hilo(f)` arranca un hilo daemon y lo devuelve.
+- `conversando(sesion, cliente, herramientas, piezas, reloj)` lanza `bucle.conversar(..., reloj=reloj, **piezas)` en un hilo.
+- Cada test que arranca `conversar` termina con `sesion.cerrar()`, `join(2)` y `not is_alive()`.
+
+1. `test_anotar_e_instantanea`:
+   - 3 `anotar` → ids 1, 2 y 3. `instantanea(1)["mensajes"]` tiene los ids `[2, 3]` y `ultimo == 3`.
+   - Las claves de `instantanea()` son exactamente las 6 del contrato.
+   - Con 205 `anotar`, quedan 200 mensajes y el primero tiene id 6.
+   - `anotar("otro", "x")` → ValueError.
+2. `test_anotar_linea` (parametrize, con `(quien, texto)` del último mensaje):
+   - `"jarvis> hola"` → `("jarvis", "hola")`
+   - `"jarvis> Recordatorio (2026-10-20 10:05): agua"` → `("aviso", "Recordatorio (2026-10-20 10:05): agua")`
+   - `"tú (voz)> qué hora es"` → `("usuario", "qué hora es")`
+   - `"Error del proveedor: X"` → `("sistema", "Error del proveedor: X")`
+   - `"Hasta luego."` → `("sistema", "Hasta luego.")`
+3. `test_estados`:
+   - `poner_estado("nada")` → ValueError.
+   - Dentro de `durante("hablando")`, `estado == "hablando"`. Al salir, `"reposo"`, también si dentro se lanzó un `RuntimeError` (capturado con `pytest.raises`).
+4. **`test_enviar_y_entrada`**, con `Sesion(espera_entrada=0.01)`:
+   - `entrada() == ""`, `ocupado is False` y `estado == "reposo"`.
+   - `enviar("  hola ") is True`, `ocupado is True` y `enviar("otra") is False`. El último mensaje es `("usuario", "hola")`.
+   - `entrada() == "hola"` y `estado == "pensando"`. `enviar("x") is False`.
+   - `entrada() == ""` → `ocupado is False` y `estado == "reposo"`. Ahora `enviar("x") is True`.
+5. `test_cerrar`: tras `cerrar()`, `entrada()` → EOFError, `enviar("x") is False` y `confirmar("correo_enviar", ARGS)` → False en < 1 s.
+6. **`test_confirmar`** (parametrize con la respuesta de la página: `True` → True, `False` → False, `"sí"` → False):
+   - `confirmar` corre en un hilo, con `Sesion()` (60 s).
+   - Se espera a que `instantanea()["confirmacion"] == {"id": 1, "texto": TEXTO_CONF, "segundos": 60}`.
+   - `responder(99, True) is False` y `responder(1, respuesta) is True`. Luego `responder(1, True) is False` (ya respondida).
+   - El hilo devuelve lo esperado y después `confirmacion is None`.
+   - Último mensaje `sistema`: `"Confirmado: correo_enviar."` o `"Cancelado: correo_enviar."`.
+7. `test_confirmar_caduca`: con `Sesion(tiempo_confirmacion=0.2)` → False en < 1,5 s; el último mensaje es `"Sin respuesta en 1 s: correo_enviar cancelado."`, `segundos == 1` y luego `confirmacion is None`.
+8. **`test_conversar_por_la_pagina`**:
+   - `ClienteFalso([Respuesta(texto="Hola, señor.")])` y `conversar` con `piezas_ui(s)` y `Sesion(espera_entrada=0.01)`.
+   - `enviar("hola")`. Se espera a que llegue un mensaje `jarvis` y, después, a `not s.ocupado and s.estado == "reposo"`.
+   - Al cerrar, los mensajes son `[("usuario", "hola"), ("jarvis", "Hola, señor."), ("sistema", "Hasta luego.")]`, y `cliente.recibidos[0]["mensajes"][-1]["texto"] == "hola"`.
+9. **`test_confirmacion_en_la_pagina`** (parametrize: `"si"`, `"no"` y `"caduca"`):
+   - `ClienteFalso([Respuesta(llamadas=[LlamadaHerramienta("l1", "correo_enviar", ARGS)]), Respuesta(texto="Listo.")])`, herramientas `{"correo_enviar": herramienta_enviar(ejecutadas)}` y `Sesion(espera_entrada=0.01, tiempo_confirmacion=0.3)`.
+   - `enviar("manda el correo")` y se espera a la confirmación. Según el caso: `responder(id, True)`, `responder(id, False)` o nada.
+   - Se espera al mensaje `("jarvis", "Listo.")`.
+   - Si es sí → `ejecutadas == [ARGS]` y el resultado de la herramienta en `cliente.recibidos[1]["mensajes"][-1]["resultado"]` es `"enviado"`.
+   - Si no → `ejecutadas == []` y el resultado es `"El usuario canceló la acción."`.
+10. **`test_recordatorio_aparece_una_vez`**:
+    - `recordatorios.crear("tomar agua", datetime(2026, 10, 20, 10, 5), datetime(2026, 10, 20, 10, 0))`.
+    - `conversar` con `piezas_ui`, `Sesion(espera_entrada=0.01)`, `ClienteFalso([])` y `reloj=lambda: datetime(2026, 10, 20, 10, 6)`.
+    - Se espera a un mensaje `aviso` y luego `time.sleep(0.2)` (≥ 10 vueltas más).
+    - Los avisos son exactamente `["Recordatorio (2026-10-20 10:05): tomar agua"]`.
+11. `test_hoy_por_la_pagina(monkeypatch)`: con `sin_credenciales` y `ClienteFalso([Respuesta(texto="Parte listo.")])`, `enviar("/hoy")` → mensaje `("jarvis", "Parte listo.")`, y `cliente.recibidos[0]["herramientas"] == []`.
+12. `test_piezas_ui`: las claves son las 4, `fragmento is None`, `salida == s.anotar_linea` y `confirmar == s.confirmar`.
+13. **`test_voz_con_pagina`**:
+    - Un `OyenteFalso` y un `HablanteFalso` envueltos en subclases de test que anotan `s.estado` en cada `escuchar` o `decir`. El oyente da `OyenteFalso("Jarvis, ¿qué hora es?")` y luego se agota (EOFError).
+    - `ClienteFalso([Respuesta(texto="Son las 10."), Respuesta(texto="Hola.")])` y `conversar` con `piezas_ui_voz(s, oyente, hablante, ["jarvis"])`.
+    - Se espera al mensaje `("sistema", VOZ_APAGADA)`. Para entonces `s.voz is False`, y los mensajes incluyen `("usuario", "¿qué hora es?")` y `("jarvis", "Son las 10.")`.
+    - `hablante.dichos[0] == "Son las 10."`, todos los estados anotados al escuchar son `"escuchando"` y todos los anotados al decir son `"hablando"`.
+    - Después, `enviar("hola")` → `("jarvis", "Hola.")`: sigue con texto.
+14. `test_voz_confirma_en_pantalla`:
+    - `piezas_ui_voz(...)["confirmar"]` corre en un hilo con `("correo_enviar", ARGS)`.
+    - Se espera a la confirmación. `hablante.dichos == [CONFIRMA_EN_PANTALLA]` y `oyente.escuchas == 0`: nunca se oye un "sí".
+    - `responder(1, True)` → True.
+15. `test_microfono_roto_no_cierra`: con `OyenteFalso(RuntimeError("sin micro"))`, en `conversar` → aparecen los mensajes `("sistema", "Error del micrófono: sin micro")` y `("sistema", VOZ_APAGADA)`, y el hilo sigue vivo hasta `cerrar()`.
+
+**tests/test_ui_servidor.py** (constructor):
+- `from jarvis.ui import servidor` y `from jarvis.ui.sesion import Sesion`.
+- `TOKEN = "t" * 43`, `PUERTO = 8765`, `ORIGEN = "http://127.0.0.1:8765"` y `AHORA = datetime(2026, 10, 20, 8, 0)`. `SIN_GOOGLE` es igual que en test_hoy, y `ARGS` y `TEXTO_CONF`, igual que en test_ui_sesion. Los fakes (`CorreoFalso`, `instalar`, `sin_credenciales`) vienen de `clientes_falsos`.
+- `CAB = {"Host": "127.0.0.1:8765", "X-Jarvis-Token": TOKEN}` y `POST_CAB = {**CAB, "Origin": ORIGEN, "Content-Type": "application/json"}`.
+- `pedir(s, metodo, ruta, cabeceras=CAB, cuerpo=b"")` llama a `servidor.atender(s, metodo, ruta, cabeceras, cuerpo, PUERTO, lambda: AHORA)` y **siempre** comprueba:
+  - `CABECERAS_SEGURIDAD.items() <= r.cabeceras.items()`;
+  - `"Access-Control-Allow-Origin" not in r.cabeceras`;
+  - `TOKEN.encode() not in r.cuerpo`, y el token no aparece en ninguna cabecera.
+
+1. `test_estaticos`:
+   - `"/"`, `"/app.js"`, `"/estilo.css"` y `"/?x=1"` → 200, con su `Content-Type` exacto y el cuerpo idéntico al archivo.
+   - Valen con `{"Host": "127.0.0.1:8765"}` solo (sin token).
+2. `test_rutas_desconocidas` (parametrize): `"/index.html"`, `"/../jarvis/bucle.py"`, `"/sesion.py"`, `"/api"`, `"/api/nada"`, `"//etc/passwd"` y `"/app.js/.."` → 404.
+3. `test_metodos`: `POST "/"` con `POST_CAB`, `GET /api/mensaje` y `POST /api/estado` → 405.
+4. **`test_host_no_permitido`** (parametrize):
+   - Hosts: sin `Host`, `"evil.example.com"`, `"localhost:8765"`, `"127.0.0.1"`, `"127.0.0.1:9999"` y `"127.0.0.1:8765.evil.example.com"`.
+   - Rutas: `"/"` y `"/api/estado"`.
+   - Todas → 403 `{"error": "host no permitido"}`.
+5. **`test_token`** (parametrize): sin cabecera, `""`, `"t" * 42`, `"T" * 43` y `"ñ" * 43` → 403 `{"error": "token no válido"}`. Con el bueno → 200.
+6. **`test_origen`**:
+   - GET con `Origin` igual a `"http://evil.example.com"`, `"null"`, `"http://localhost:8765"` o `"https://127.0.0.1:8765"` → 403.
+   - GET sin `Origin` o con `ORIGEN` → 200.
+   - `POST /api/mensaje` sin `Origin` → 403.
+   - `Sec-Fetch-Site` igual a `"cross-site"`, `"same-site"` o `"none"` → 403; con `"same-origin"` → 200.
+7. **`test_mensaje`**:
+   - `{"texto": "hola"}` → 202 `{"ok": true}`, con el último mensaje `("usuario", "hola")` y `s.ocupado is True`. El segundo → 409 `{"error": "Jarvis está ocupado"}`.
+   - Con `Content-Type` igual a `"text/plain"` → 415. Con `"application/json; charset=utf-8"` y una sesión nueva → 202.
+   - Con cuerpo igual a `b"no json"`, `b"[1]"`, `b'{"texto": 5}'`, `b'{"texto": "  "}'`, el JSON de `"x" * 4001`, `b"\xff"` o `b"[" * 5000 + b"]" * 5000` → 400, sin excepción.
+   - Con un cuerpo de `MAX_CUERPO + 1` bytes → 413.
+8. **`test_confirmar_por_http`**:
+   - `s.confirmar("correo_enviar", ARGS)` corre en un hilo, y se espera a la confirmación.
+   - `GET /api/estado` → `confirmacion == {"id": 1, "texto": TEXTO_CONF, "segundos": 60}`.
+   - POST `{"id": 1, "si": "true"}` → 400; `{"id": true, "si": true}` → 400; `{"id": 2, "si": true}` → 409; `{"id": 1, "si": true}` → 200.
+   - El hilo devuelve True. Repetir la última petición → 409.
+9. `test_estado_desde`: con 3 `anotar`, `?desde=1` → ids `[2, 3]` y `ultimo == 3`, con exactamente las 6 claves. `?desde=abc`, `?desde=-1` y `?desde=1e3` → 400.
+10. `test_hoy_sin_google(monkeypatch)`: con `sin_credenciales`, `GET /api/hoy` → 200:
+    - `titulo == "Parte del martes 2026-10-20, a las 08:00."`;
+    - los 4 títulos, en orden;
+    - `secciones[0]["texto"] == SIN_GOOGLE` y `secciones[2]["texto"] == "No hay notas."`.
+11. `test_hoy_devuelve_texto_externo_tal_cual(monkeypatch)`: con `CorreoFalso` y el asunto `"<img src=x onerror=alert(1)>"` (y calendario sin credenciales), el JSON trae ese texto **literal**. Es el contrato: el servidor no escapa y la página usa `textContent`.
+12. `test_longitud` (parametrize, con `ErrorHTTP.codigo`):
+    - `{}` → 411; `"abc"`, `"-1"` y `"١٢"` → 400; `str(MAX_CUERPO + 1)` → 413;
+    - `{"Content-Length": "10", "Transfer-Encoding": "chunked"}` → 411;
+    - `"16"` → 16.
+13. `test_puerto_de`: `{}` y `{"JARVIS_UI_PUERTO": " "}` → 0; `"0"` → 0; `"8765"` → 8765. `"80"`, `"70000"`, `"abc"` y `"-1"` → `ErrorUI` con el texto exacto.
+14. `test_csp`:
+    - `CSP` contiene `"default-src 'none'"`, `"script-src 'self'"`, `"frame-ancestors 'none'"` y `"form-action 'none'"`.
+    - No contiene `"unsafe"` ni `"*"`.
+15. `test_buscar_edge(tmp_path)`:
+    - Con `which=lambda n: "C:/x/msedge.exe"`, devuelve eso.
+    - Con `which` que da None y `entorno={"ProgramFiles(x86)": str(tmp_path)}`, más el archivo `tmp_path/Microsoft/Edge/Application/msedge.exe`, devuelve su `str`.
+    - Con `entorno={}` → None.
+16. **`test_abrir_ventana`**:
+    - Con `buscar=lambda: "msedge.exe"` y un `abrir` falso → True. `args[0] == ["msedge.exe", "--app=" + URL, "--window-size=1100,720"]`, sin `shell`, y el navegador no se llama.
+    - Con un `abrir` que lanza `OSError` → se llama al `navegador` falso, que devuelve True → True.
+    - Con `buscar=lambda: None` → navegador. Con un navegador que devuelve False → False.
+    - **Sin inyectar `abrir`**, con `buscar=lambda: "msedge.exe"` → `AssertionError` de la guardia.
+    - **Sin inyectar `navegador`**, con `buscar=lambda: None` → `AssertionError` de la guardia.
+17. `test_solo_escucha_en_127`:
+    - `crear_servidor(Sesion(token=TOKEN), 0)`: `server_address[0] == "127.0.0.1"` y `ServidorUI.allow_reuse_address is False`.
+    - `list(inspect.signature(servidor.crear_servidor).parameters) == ["sesion", "puerto"]`.
+    - Al final, `server_close()`.
+18. **`test_peticiones_reales(red_local, capsys)`**:
+    - El fixture local `en_marcha` crea el servidor en el puerto 0, lanza `serve_forever` en un hilo y al terminar hace `shutdown`, `server_close` y `join`.
+    - Cada petición usa una `http.client.HTTPConnection("127.0.0.1", puerto, timeout=5)` nueva.
+    - `GET /` → 200, la cabecera `Content-Security-Policy == CSP` y sin `Access-Control-Allow-Origin`.
+    - `GET /api/estado` con `X-Jarvis-Token` → 200, con el JSON `estado == "reposo"`.
+    - El mismo GET con `headers={"Host": f"localhost:{puerto}", ...}` → 403.
+    - `POST /api/mensaje` enviando solo las cabeceras (`putrequest`, `putheader("Content-Length", "999999")`, `endheaders()`) → 413 antes del timeout.
+    - Al final, `capsys.readouterr()` → `out == ""` y `err == ""`: sin logs.
+
+**tests/test_main.py** (constructor). Se añade `from jarvis.ui import servidor as ui`. Fixture `ui_simulada(monkeypatch, capturado)`:
+- `ui.abrir_ventana` → apunta la URL en `abiertas` y devuelve True.
+- `ui.conversar` → apunta `(args, kwargs)` en `llamadas`.
+- `ui.crear_servidor` → envuelve el real y guarda el servidor en `creados`. Sin conexiones, `bind` en 127.0.0.1 está permitido.
+- `delenv("JARVIS_UI_PUERTO")`.
+
+1. **`test_ui_arranca_imprime_la_url_y_se_detiene(ui_simulada, capsys)`**:
+   - `main(["--ui"]) == 0`, y `capturado == []`: no se llama al `conversar` de la terminal.
+   - Una llamada con `args == ("cliente", {})`, las claves de kwargs `{"entrada", "salida", "confirmar", "fragmento"}` y `fragmento is None`.
+   - La URL cumple `re.fullmatch(r"http://127\.0\.0\.1:(\d+)/#([A-Za-z0-9_-]{43})", abiertas[0])`.
+   - `out` contiene `f"Jarvis UI en http://127.0.0.1:{puerto}/"`, y el token no está en `out + err`.
+   - `creados[0].socket.fileno() == -1`: el servidor quedó cerrado.
+2. `test_ui_sin_ventana_muestra_la_url(...)`: con `abrir_ventana` → False, `out` contiene la URL completa con el token. Es el único caso.
+3. `test_ui_puerto_invalido(...)`: con `JARVIS_UI_PUERTO=80` → 1. En `err` sale `"JARVIS_UI_PUERTO='80' no es válido"`, y `abiertas == creados == []`.
+4. `test_ui_con_voz_sin_dependencias(...)`: con `faster_whisper` a None, `main(["--ui", "--voz"]) == 0`. En `err` sale `"Voz desactivada: "`, y `kwargs["salida"].__func__ is Sesion.anotar_linea`.
+5. `test_ui_con_voz_usa_motores(...)`: con `voz.motores` → `(OyenteFalso(), HablanteFalso(), ["jarvis"])` → `"Voz activada: di «jarvis»"` en `out`, y `kwargs["salida"]` **no** es `anotar_linea` (es la de voz).
+6. **`test_ui_extremo_a_extremo(ui_simulada, red_local, monkeypatch)`**: un `ui.conversar` falso hace, con `http.client`, un `GET /api/estado` real usando el puerto y el token de `abiertas[0]` → 200 y `estado == "reposo"`.
+7. `test_sin_ui_no_lanza(capturado, monkeypatch)`: con `ui.lanzar` prohibido, `main([])` → conversa por terminal como antes.
+
+**tests/test_ui_estaticos.py** (ligero; lee los 3 archivos en utf-8 desde `Path(__file__).parents[1] / "jarvis" / "ui"`):
+1. `test_ids`: cada id de la tabla aparece como `id="X"` en el HTML y como `"X"` en `app.js`.
+2. `test_index_sin_codigo_en_linea`:
+   - Todas las etiquetas `<script` tienen `src="/app.js"`.
+   - No hay `<style`, ni `re.search(r"\son[a-z]+\s*=", html)`, ni `style=`.
+   - Están `href="/estilo.css"`, `lang="es"` y `<meta charset="utf-8">`.
+3. `test_sin_recursos_externos`:
+   - En ninguno de los 3: `"http://"`, `"https://"`, `'="//'`, `"@import"`, `"url("` ni `"@font-face"`.
+   - En `app.js`, los literales que empiezan por `/`, buscados con `re.findall(r"[\"'`](/[^\"'`]*)[\"'`]", js)`, están dentro de `{"/api/estado?desde=", "/api/mensaje", "/api/confirmar", "/api/hoy"}`.
+4. `test_js_sin_html_dinamico`:
+   - No aparece nada de la lista prohibida (contando `setTimeout("`, `setTimeout('`, `setInterval("` y `setInterval('`).
+   - Sí aparecen `textContent`, `X-Jarvis-Token`, `sessionStorage` y `replaceState`.
+5. `test_estados`:
+   - Los 4 estados aparecen como `"<estado>"` en `app.js`.
+   - `estilo.css` contiene `.reposo`, `.escuchando`, `.pensando`, `.hablando`, `.desconectado` y `prefers-reduced-motion`.
+
+**tests/test_acceso_directo.py** (ligero; carga el script con `importlib.util.spec_from_file_location("crear_acceso_directo", <raíz>/"scripts"/"crear_acceso_directo.py")`, igual que test_audios):
+1. `test_variables(tmp_path)`: el dict exacto, y `JARVIS_LNK_CARPETA == ""` con `carpeta=None`.
+2. `test_script_constante`:
+   - `comando()[:4] == ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand"]` y `base64.b64decode(comando()[-1]).decode("utf-16-le") == SCRIPT_LNK`.
+   - Contiene `"CreateShortcut"`, `"'-m jarvis --ui'"`, `"$env:JARVIS_LNK_PYTHON"`, `"GetFolderPath('Desktop')"` y `"WindowStyle = 7"`.
+   - No contiene `":\\"` (ninguna ruta).
+3. **`test_crear_con_ejecutor_falso(tmp_path)`**:
+   - Crea `tmp_path/"python.exe"` vacío. El `ejecutar` falso guarda `(args, kwargs)` y devuelve `SimpleNamespace(stdout=str(tmp_path / "Jarvis.lnk") + "\r\n")`.
+   - `crear(carpeta=tmp_path, python=tmp_path / "python.exe", ejecutar=falso) == tmp_path / "Jarvis.lnk"`.
+   - `args[0] == comando()`, con `env["JARVIS_LNK_CARPETA"] == str(tmp_path)` y `env["JARVIS_LNK_RAIZ"] == str(RAIZ)`. `check`, `capture_output` y `text` son True, y no hay `"shell"`.
+   - En `tmp_path` solo está `python.exe`: el script no escribió nada.
+   - Con `python=tmp_path / "pythonw.exe"`, `env["JARVIS_LNK_PYTHON"]` termina en `python.exe`.
+4. `test_sin_python(tmp_path)`: con `python=tmp_path / "no.exe"` → `SystemExit`.
+5. `test_sin_ejecutor_lo_para_la_guardia(tmp_path)`: sin `ejecutar` → `AssertionError` con "acción real" (`subprocess.run` está bloqueado).
+6. `test_main(monkeypatch, tmp_path, capsys)`: con `crear` parcheado, `main(["--carpeta", str(tmp_path)]) == 0`. Se llama con `carpeta=tmp_path` y la salida contiene `"Acceso directo creado:"`.
+
+## jarvis/README.md (ligero, al final)
+Sección **Interfaz (HUD)**:
+- `python -m jarvis --ui` (con `--voz`, además escucha y habla). Se abre una ventana de Edge en modo app o, si no hay Edge, el navegador.
+- `JARVIS_UI_PUERTO`: 0 por defecto (libre).
+- Qué muestra: el círculo y sus estados, los subtítulos, la entrada, el panel "Hoy" (sin Google, "No disponible"), "Parte del día" y los avisos de recordatorios.
+- Confirmaciones: botones Sí/No con los datos exactos. Sin respuesta en 60 s, cancela. Con `--voz`, también son con botones.
+- Acceso directo: `.venv\Scripts\python scripts\crear_acceso_directo.py [--carpeta RUTA]`. Para cerrar Jarvis, cierra la consola: cerrar la ventana no lo detiene.
+- Seguridad, en breve:
+  - solo escucha en 127.0.0.1;
+  - token por sesión, que no se imprime;
+  - comprueba `Host` y `Origin`, sin CORS;
+  - CSP estricta;
+  - no copies la URL con `#…` a nadie.
+- Limitaciones: el texto se muestra plano (sin markdown) y, con voz, lo que escribes espera a que termine la escucha en curso.
+
+## Orden
+1. A la vez, sin pisarse archivos:
+   - **constructor:** `conftest.py` + `test_guardia.py` y, después, `hoy.py` y `voz.motores` con sus tests. Comprueba que la suite (305 + los nuevos) sigue en verde.
+   - **ligero:** `pyproject.toml`, los 3 estáticos + `test_ui_estaticos.py` y el script + `test_acceso_directo.py`.
+2. constructor: `jarvis/ui/__init__.py` y `sesion.py` (tests de sesión 1–12).
+3. constructor: envoltorios y `piezas_ui_voz` (tests 13–15).
+4. constructor: `servidor.py` (tests de servidor 1–18; necesita los estáticos del paso 1).
+5. constructor: `lanzar` y `__main__.py` (tests de test_main 1–7).
+6. ligero: README.
+7. verificador, con salida literal y en la misma pasada:
+   - `.venv\Scripts\python -m pytest -q` (sin claves en el entorno) → exit 0.
+   - `1..3 | % { .venv\Scripts\python -m pytest -q tests/test_ui_sesion.py tests/test_ui_servidor.py tests/test_main.py }` → las tres en verde (sin tests intermitentes).
+   - `.venv\Scripts\python -c "import sys, jarvis.ui.servidor, jarvis.__main__; print(sorted(m for m in ('faster_whisper', 'sounddevice', 'numpy', 'pyaudio') if m in sys.modules))"` → `[]`.
+   - `git grep -n --untracked -E "0\.0\.0\.0|Access-Control-Allow|SimpleHTTPRequestHandler|shell=True" -- jarvis/ scripts/` (vacío).
+   - `git grep -n --untracked -E "innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function|https?://|@import|url\(" -- jarvis/ui/index.html jarvis/ui/app.js jarvis/ui/estilo.css` (vacío).
+   - `git diff --stat -- jarvis/bucle.py jarvis/personalidad.md jarvis/config.py jarvis/recordatorios.py jarvis/tools/ jarvis/llm/ jarvis/integrations/` (vacío).
+8. revisor: `git diff` y `git status` contra goals/06 (fase 6) y la decisión 006. Con revisión de seguridad:
+   - que solo se escuche en 127.0.0.1 y que el `Host`, el token, `Origin` y `Sec-Fetch-Site` se comprueben **antes** de cualquier efecto (también antes de `sesion.enviar` y `sesion.responder`);
+   - que no haya CORS, `OPTIONS`, ni servicio de carpetas;
+   - que el cuerpo se limite antes de leerlo y que haya timeout de socket;
+   - que la confirmación falle a NO en todos los casos (timeout, cierre, id equivocado, `si` no booleano, doble respuesta, Ctrl+C) y que con `--voz` no se pueda confirmar hablando;
+   - que el token no salga en respuestas, logs ni `print` (salvo el fallo de ventana) y que `log_message` esté silenciado;
+   - que el JS no use `innerHTML` ni nada parecido con texto externo y que la CSP no permita código en línea;
+   - que el fixture `red_local` solo deje 127.0.0.1 y que, sin él, la guardia siga igual (navegador incluido);
+   - que el acceso directo use un script constante sin rutas interpoladas.
+
+## Criterios de aceptación
+- `pytest -q` sale con 0 sin claves, red, navegador, micrófono ni procesos. Los tests de la UI pasan tres veces seguidas.
+- `python -m jarvis --ui` arranca el servidor en `127.0.0.1` (puerto libre por defecto), abre la ventana (Edge `--app` o navegador), muestra la URL sin token y, al terminar `conversar`, apaga el servidor (smoke test).
+- `/api/*` exige `Host`, token y origen correctos; sin ellos, 403. POST exige JSON, ≤ 16 KiB y `Origin`. Toda respuesta lleva la CSP y las cabeceras de seguridad, y ninguna lleva CORS.
+- Una acción con `requiere_confirmacion` solo se ejecuta con `{"id": <pendiente>, "si": true}`. "No", sin respuesta, un id equivocado o un `si` no booleano no ejecutan nada (`test_confirmacion_en_la_pagina`, `test_confirmar`, `test_confirmar_por_http`).
+- El panel "Hoy" funciona sin Google ("No disponible") y el texto externo llega literal, porque la página lo pinta con `textContent`.
+- Un recordatorio vencido aparece una sola vez como `aviso`.
+- Con `--ui --voz`, el estado pasa a `escuchando` y `hablando` con la voz, la confirmación es solo con botones y, si el micrófono falla, Jarvis sigue con texto.
+- `bucle.py` y `config.py`, las herramientas (19), los proveedores y `recordatorios.py` no cambian. `reunir` da la misma salida. Importar `jarvis.ui.servidor` no carga dependencias de voz. Cada atajo lleva su `ponytail:`.
 
 ---
 

@@ -9,10 +9,11 @@ from jarvis.bucle import conversar
 from jarvis.config import ErrorConfig, cargar_config
 from jarvis.llm import crear_cliente
 from jarvis.tools import cargar_herramientas
+from jarvis.ui import servidor as ui
 
 
 def main(argv: list[str] | None = None) -> int:
-    # ponytail: los argumentos desconocidos se ignoran (la fase 6 añade --ui); usar argparse cuando haya más.
+    # ponytail: solo se reconocen --ui y --voz; el resto se ignora. Usar argparse cuando haya más.
     argv = sys.argv[1:] if argv is None else argv
     load_dotenv()
     try:
@@ -23,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     if config.proveedor == "claude-cli":
         print("Aviso: el proveedor claude-cli no usa herramientas; para usarlas pon LLM_PROVIDER=claude "
               "u openrouter en .env.", file=sys.stderr)
+    if "--ui" in argv:  # la página local; con --voz también escucha y habla
+        return ui.lanzar(crear_cliente(config), cargar_herramientas(), os.environ, con_voz=voz.activada(argv, os.environ))
     piezas = {}  # sin voz, conversar recibe exactamente (cliente, herramientas), como antes
     if voz.activada(argv, os.environ):
         try:

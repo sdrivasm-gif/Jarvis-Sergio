@@ -52,7 +52,11 @@ def pendientes() -> list[dict]:
 
 
 def del_dia(dia: date) -> list[dict]:
-    return sorted((r for r in cargar() if momento(r).date() == dia), key=momento)
+    # Bajo el cerrojo: /api/hoy lee desde el hilo del servidor, y en Windows leer durante el os.replace de
+    # vencidos falla. No se llama con el cerrojo tomado (no es reentrante).
+    with datos.cerrojo:
+        lista = cargar()
+    return sorted((r for r in lista if momento(r).date() == dia), key=momento)
 
 
 def cancelar(id_recordatorio: int, texto: str) -> dict:

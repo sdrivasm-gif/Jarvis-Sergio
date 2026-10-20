@@ -448,6 +448,13 @@ def test_preparar(monkeypatch):
     assert vistos == ["Voz activada: di «jarvis» y tu petición. Ctrl+C para salir."]
 
 
+def test_motores(monkeypatch):
+    _motores_falsos(monkeypatch)
+    oyente, hablante, palabras = voz.motores({"JARVIS_VOZ_UMBRAL": "800"})
+    assert isinstance(oyente, voz.OyenteLocal) and oyente.umbral == 800
+    assert isinstance(hablante, voz.HablanteSAPI) and palabras == ["jarvis"]
+
+
 def _error_de_preparar(entorno=None):
     with pytest.raises(voz.ErrorVoz) as e:
         voz.preparar(entorno or {}, [].append)

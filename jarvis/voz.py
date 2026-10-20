@@ -357,8 +357,8 @@ def piezas_de_voz(oyente, hablante, palabras: list[str], mostrar=print) -> dict:
             "fragmento": None}
 
 
-def preparar(entorno, mostrar=print) -> dict:
-    """Comprueba micrófono y modelo y devuelve las piezas de voz para conversar; si algo falta, ErrorVoz."""
+def motores(entorno) -> tuple[OyenteLocal, HablanteSAPI, list[str]]:
+    """Comprueba micrófono y modelo y devuelve (oyente, hablante, palabras); si algo falta, ErrorVoz. No muestra nada."""
     palabras = palabras_activacion(entorno)
     umbral = umbral_de(entorno)
     try:
@@ -377,5 +377,11 @@ def preparar(entorno, mostrar=print) -> dict:
         raise ErrorVoz(FALTAN_DEPENDENCIAS) from None
     except Exception as e:
         raise ErrorVoz(f"no pude cargar el modelo de voz a texto: {e}") from None
+    return OyenteLocal(transcribir, umbral=umbral), HablanteSAPI(), palabras
+
+
+def preparar(entorno, mostrar=print) -> dict:
+    """Comprueba micrófono y modelo y devuelve las piezas de voz para conversar; si algo falta, ErrorVoz."""
+    oyente, hablante, palabras = motores(entorno)
     mostrar(f"Voz activada: di «{palabras[0]}» y tu petición. Ctrl+C para salir.")
-    return piezas_de_voz(OyenteLocal(transcribir, umbral=umbral), HablanteSAPI(), palabras, mostrar)
+    return piezas_de_voz(oyente, hablante, palabras, mostrar)

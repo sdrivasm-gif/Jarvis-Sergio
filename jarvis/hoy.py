@@ -19,14 +19,14 @@ PETICION = ("Dame el parte del día con tu tono habitual, en tres a seis frases 
             "No inventes nada que no esté en los datos.")
 
 
-def seccion(titulo: str, obtener) -> str:
+def contenido(obtener) -> str:
     try:
         texto = obtener()
     except Exception as e:  # ponytail: una fuente caída no tumba el parte; distinguir errores si hace falta
         texto = f"Error: {e}"
     if texto.startswith("Error: "):
         texto = "No disponible: " + texto.removeprefix("Error: ")
-    return f"## {titulo}\n{texto}"
+    return texto
 
 
 def notas_recientes() -> str:
@@ -41,15 +41,22 @@ def recordatorios_de_hoy(dia: date) -> str:
                      + (" (ya avisado)" if r["estado"] == "disparado" else "") for r in del_dia)
 
 
-def reunir(ahora: datetime) -> str:
+def encabezado(ahora: datetime) -> str:
+    return f"Parte del {DIAS[ahora.weekday()]} {ahora.date().isoformat()}, a las {ahora:%H:%M}."
+
+
+def secciones(ahora: datetime) -> list[tuple[str, str]]:
     dia = ahora.date()
-    return "\n\n".join([
-        f"Parte del {DIAS[ahora.weekday()]} {dia.isoformat()}, a las {ahora:%H:%M}.",
-        seccion("Eventos de hoy", lambda: calendario_eventos.ejecutar(dia.isoformat())),
-        seccion("Correos sin leer", lambda: correo_buscar.ejecutar(CONSULTA_CORREO)),
-        seccion("Notas recientes", notas_recientes),
-        seccion("Recordatorios de hoy", lambda: recordatorios_de_hoy(dia)),
-    ])
+    return [
+        ("Eventos de hoy", contenido(lambda: calendario_eventos.ejecutar(dia.isoformat()))),
+        ("Correos sin leer", contenido(lambda: correo_buscar.ejecutar(CONSULTA_CORREO))),
+        ("Notas recientes", contenido(notas_recientes)),
+        ("Recordatorios de hoy", contenido(lambda: recordatorios_de_hoy(dia))),
+    ]
+
+
+def reunir(ahora: datetime) -> str:
+    return "\n\n".join([encabezado(ahora)] + [f"## {t}\n{c}" for t, c in secciones(ahora)])
 
 
 def envolver(datos: str) -> str:

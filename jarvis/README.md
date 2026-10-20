@@ -126,6 +126,54 @@ Variables opcionales de `.env`:
 
 Los WAV de `tests/audio/` salen de `python scripts/generar_audios_prueba.py`.
 
+## Interfaz (HUD)
+
+Una página local con estilo HUD para hablar con Jarvis. Usa solo la biblioteca estándar de Python (sin dependencias nuevas).
+
+```powershell
+python -m jarvis --ui
+python -m jarvis --ui --voz
+```
+
+Con `--voz` (o `JARVIS_VOZ=on`) la página además escucha y habla, como en la sección Voz; si la voz falla, sigue solo con texto.
+
+Variable opcional de `.env`: `JARVIS_UI_PUERTO`, un entero entre 1024 y 65535, o `0` (por defecto) para que se elija un puerto libre en cada arranque. Un valor no válido, o un puerto ocupado, hace que Jarvis avise y termine. Además valen las de Voz y las del proveedor.
+
+Al arrancar se abre una ventana de app con `msedge --app=URL` (1100x720); Edge se busca en el PATH y en `ProgramFiles(x86)`, `ProgramFiles` y `LOCALAPPDATA`. Si no hay Edge o falla, se usa el navegador por defecto. Si no se puede abrir ninguna ventana, la consola muestra la URL completa (lleva el token; no la compartas).
+
+Acceso directo en el escritorio (consola minimizada):
+
+```powershell
+.venv\Scripts\python scripts\crear_acceso_directo.py [--carpeta RUTA]
+```
+
+Crea `Jarvis.lnk` que ejecuta `python -m jarvis --ui` desde la carpeta del proyecto. Para cerrar Jarvis, cierra su consola o pulsa Ctrl+C en ella.
+
+Qué muestra la página:
+
+- Un círculo animado que cambia según el estado: reposo, escuchando, pensando o hablando.
+- Los subtítulos de la conversación (texto plano, sin markdown; se guardan los últimos 200).
+- Una entrada de texto para escribir a Jarvis. Mientras está ocupado, rechaza otro mensaje.
+- Un panel "Hoy" con eventos, correos sin leer, notas y recordatorios, sin pasar por el modelo. Se carga al abrir, cada 5 minutos y con el botón "Actualizar". El botón "Parte del día" envía `/hoy` (ese sí usa el modelo).
+- Los avisos de recordatorios, como subtítulos.
+- Las confirmaciones (enviar correo, borrar, etc.) en un cuadro con los botones "Sí, ejecutar" y "No". Con la voz activa, Jarvis solo dice que necesita tu confirmación en pantalla: nunca se confirma hablando.
+
+Seguridad:
+
+- Escucha solo en `127.0.0.1` (no es configurable).
+- Cada arranque genera un token aleatorio que va en el fragmento de la URL (`/#token`), así que no llega al servidor, a los logs ni al Referer. La página lo guarda en `sessionStorage`, lo quita de la barra y lo manda en la cabecera `X-Jarvis-Token`.
+- El servidor comprueba `Host`, `Origin` y `Sec-Fetch-Site`, exige `application/json` en los POST, limita el cuerpo a 16 KiB y el texto a 4000 caracteres, y envía una CSP estricta. No hay CORS ni logs de peticiones.
+- Una confirmación sin respuesta en 60 s, o con la página cerrada, es NO. Solo un clic en "Sí" para esa confirmación cuenta como sí.
+
+Limitaciones:
+
+- Cerrar la ventana no cierra Jarvis: se cierra con la consola o Ctrl+C. Si abres otra ventana con el acceso directo, arranca otra instancia con historial nuevo.
+- El token aparece en la línea de comandos de `msedge.exe`, visible para los procesos del mismo usuario.
+- Con `--voz`, lo que escribes en la página espera a que termine la escucha en curso (hasta 8 s).
+- Sin icono propio. El JS solo tiene comprobaciones estáticas; su comportamiento se prueba a mano.
+
+Decisión de diseño: `docs/decisiones/006-ui-hud-fase-6.md`.
+
 ## Probar
 
 ```powershell
@@ -140,6 +188,8 @@ No necesita clave ni red: los tests usan un cliente simulado.
 - `jarvis/llm/` : proveedores del modelo (`claude.py`, `openrouter.py`) y un cliente simulado (`falso.py`).
 - `jarvis/tools/` : herramientas que el modelo puede llamar, una por archivo.
 - `jarvis/voz.py` : voz opcional (escuchar y hablar).
+- `jarvis/ui/` : interfaz HUD (`servidor.py`, `sesion.py` y los estáticos `index.html`, `app.js`, `estilo.css`).
+- `scripts/crear_acceso_directo.py` : crea el acceso directo de la interfaz en el escritorio.
 - `jarvis/integrations/` : clientes de Google (las herramientas siguen en `jarvis/tools/`).
 - `tests/` : pruebas con pytest.
 

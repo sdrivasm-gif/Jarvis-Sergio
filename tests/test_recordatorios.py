@@ -1,11 +1,12 @@
 import importlib
 import json
+import threading
 from datetime import date, datetime
 
 import pytest
 from clientes_falsos import llamar
 
-from jarvis import recordatorios
+from jarvis import datos, recordatorios
 from jarvis.tools import recordatorio_cancelar
 from jarvis.tools import recordatorios as h_recordatorios
 
@@ -106,6 +107,18 @@ def test_del_dia():
     recordatorios.crear("mañana", D(9, 0, dia=21), D(10, 0))
     recordatorios.crear("cena", D(17, 0), D(10, 0))
     assert [r["texto"] for r in recordatorios.del_dia(date(2026, 10, 20))] == ["tomar agua", "cena"]
+
+
+def test_del_dia_lee_bajo_el_cerrojo():
+    # /api/hoy lee desde el hilo del servidor: no debe chocar con el os.replace de vencidos (Windows).
+    agua()
+    hilo = threading.Thread(target=recordatorios.del_dia, args=(date(2026, 10, 20),), daemon=True)
+    with datos.cerrojo:
+        hilo.start()
+        hilo.join(0.2)
+        assert hilo.is_alive()  # espera al cerrojo
+    hilo.join(2)
+    assert not hilo.is_alive()
 
 
 def test_aviso():

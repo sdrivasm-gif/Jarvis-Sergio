@@ -4,8 +4,13 @@ import socket
 import subprocess
 import sys
 import urllib.request
+import webbrowser
 
 import pytest
+
+# Guardados al importar, antes de que la guardia los sustituya: solo los usa el fixture red_local.
+_CONECTAR_REAL = socket.socket.connect
+_HTTP_CONECTAR_REAL = http.client.HTTPConnection.connect
 
 
 def _prohibido(*args, **kwargs):
@@ -28,6 +33,20 @@ def sin_efectos_reales(monkeypatch):
     monkeypatch.setitem(sys.modules, "sounddevice", None)
     monkeypatch.setitem(sys.modules, "pyaudio", None)
     monkeypatch.delenv("JARVIS_VOZ", raising=False)  # la voz solo se activa si el test lo pide
+    for nombre in ("open", "open_new", "open_new_tab"):  # ningún test abre el navegador
+        monkeypatch.setattr(webbrowser, nombre, _prohibido)
+
+
+@pytest.fixture
+def red_local(monkeypatch):
+    """Solo para los tests del servidor de la UI: deja conectar a 127.0.0.1; cualquier otro destino sigue prohibido."""
+    def conectar(sock, direccion, *args, **kwargs):
+        if not (isinstance(direccion, tuple) and direccion[:1] == ("127.0.0.1",)):
+            _prohibido()
+        return _CONECTAR_REAL(sock, direccion, *args, **kwargs)
+
+    monkeypatch.setattr(socket.socket, "connect", conectar)
+    monkeypatch.setattr(http.client.HTTPConnection, "connect", _HTTP_CONECTAR_REAL)  # conecta vía socket.connect (filtrado)
 
 
 @pytest.fixture(autouse=True)

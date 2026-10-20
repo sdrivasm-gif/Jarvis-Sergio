@@ -46,6 +46,15 @@ def test_reunir_sin_google_no_falla(monkeypatch):
     assert "## Recordatorios de hoy\nNo hay recordatorios para hoy." in t
 
 
+def test_secciones_sin_google(monkeypatch):
+    sin_credenciales(monkeypatch, google)
+    secciones = hoy.secciones(AHORA)
+    assert [t for t, _ in secciones] == ["Eventos de hoy", "Correos sin leer", "Notas recientes", "Recordatorios de hoy"]
+    assert secciones[0][1] == SIN_GOOGLE
+    assert secciones[2][1] == "No hay notas."
+    assert hoy.encabezado(AHORA) == "Parte del martes 2026-10-20, a las 08:00."
+
+
 def test_una_fuente_que_falla_no_tumba_el_parte(monkeypatch):
     sin_credenciales(monkeypatch, google)
     falso = CalendarioFalso()

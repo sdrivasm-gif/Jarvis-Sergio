@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis</title>
+<link rel="stylesheet" href="/estilo.css">
+<script src="/app.js" defer></script>
+</head>
+<body class="reposo">
+<p id="aviso-conexion" class="aviso-conexion" role="alert" hidden></p>
+<main class="disposicion">
+  <section class="hud" aria-label="Jarvis">
+    <canvas id="nucleo" width="360" height="360" aria-hidden="true"></canvas>
+    <p id="estado" class="estado" role="status">En reposo</p>
+    <section id="subtitulos" class="subtitulos" aria-live="polite" aria-label="Conversación"></section>
+    <form id="formulario" class="formulario" autocomplete="off">
+      <label for="texto" class="solo-lectores">Mensaje para Jarvis</label>
+      <input id="texto" type="text" maxlength="4000" autocomplete="off" placeholder="Escribe a Jarvis…">
+      <button id="enviar" type="submit">Enviar</button>
+    </form>
+    <p id="nota" class="nota" role="status"></p>
+  </section>
+  <aside id="panel" class="panel" aria-label="Pendientes del día">
+    <h2 id="titulo-hoy">Hoy</h2>
+    <div id="secciones" class="secciones"></div>
+    <div class="acciones">
+      <button id="actualizar" type="button">Actualizar</button>
+      <button id="parte" type="button">Parte del día</button>
+    </div>
+  </aside>
+</main>
+<div id="confirmacion" class="confirmacion" role="alertdialog" aria-modal="true" aria-labelledby="confirmacion-titulo" hidden>
+  <div class="caja">
+    <h2 id="confirmacion-titulo">Confirmación necesaria</h2>
+    <pre id="confirmacion-texto"></pre>
+    <p id="confirmacion-cuenta" class="cuenta"></p>
+    <div class="acciones">
+      <button id="si" type="button">Sí, ejecutar</button>
+      <button id="no" type="button">No</button>
+    </div>
+  </div>
+</div>
+</body>
+</html>

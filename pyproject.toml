@@ -14,7 +14,10 @@ dev = ["pytest"]
 voz = ["faster-whisper", "sounddevice"]  # ponytail: sin versiones fijadas; fijarlas cuando algo se rompa
 
 [tool.setuptools]
-packages = ["jarvis", "jarvis.llm", "jarvis.tools", "jarvis.integrations"]
+packages = ["jarvis", "jarvis.llm", "jarvis.tools", "jarvis.integrations", "jarvis.ui"]
+
+[tool.setuptools.package-data]
+"jarvis.ui" = ["index.html", "app.js", "estilo.css"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
