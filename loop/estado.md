@@ -1,8 +1,11 @@
 # Estado del bucle
 
 ## Fase actual
-**Goal: goals/07-voz-rapida.md (fase 7, voz rápida). Rama `voz-rapida`. CERRADO; commit local `Voz rápida` con etiqueta `v0.7-voz` por la sesión principal; nunca push.**
-Diseño: docs/decisiones/007-voz-rapida.md (la especificación está al final de este archivo). Revisor: APROBADO en la 1.ª vuelta (sin críticos); aplicadas sus 2 advertencias (troceado atascado tras bloques de código largos, `ponytail:` de Ctrl+C). Última salida de `pytest -q` (verificador y sesión principal): **468 passed, 2 skipped (los 2 de tests/test_voz_real.py, opcionales), exit 0**, sin claves, red ni audio.
+**Goal: goals/08-claude-cli-persistente.md (claude-cli persistente). Rama `claude-cli-rapido`. CERRADO; commit local `claude-cli persistente` con etiqueta `v0.8-cli-rapido` por la sesión principal; nunca push.**
+`ClienteClaudeCLI` mantiene un solo proceso `claude -p --input-format stream-json --output-format stream-json` (una línea JSON por turno), `precalentar(sistema)` al arrancar y `cerrar()` en el `finally` de `__main__` (Ctrl+C y errores); si muere o se agota el tiempo, el siguiente mensaje relanza con `--resume`. Revisor: APROBADO en la 1.ª vuelta (sin críticos); aplicadas sus 2 advertencias (tests del reloj y de stdin roto) y 2 sugerencias. Última salida de `pytest -q` (verificador): **484 passed, 2 skipped (test_voz_real, opcionales), exit 0**, sin claves ni red.
+**PENDIENTE PARA SERGIO (goal 08):** ejecutar `.venv\Scripts\python.exe scripts\medir_claude_cli.py` y pasarme los tiempos (10 llamadas reales; no comprobado contra claude real salvo una sonda manual de 2 turnos con haiku) y probar `python -m jarvis --ui --voz`. Nota: con `--resume` claude reutiliza el system prompt del primer turno (`--system-prompt-snapshot`), así que cambiar `personalidad.md` a mitad de conversación no surte efecto hasta una sesión nueva.
+
+Goal anterior: goals/07-voz-rapida.md (fase 7, voz rápida). Rama `voz-rapida`, commit `Voz rápida`, etiqueta `v0.7-voz`. 468 passed, 2 skipped.
 
 **PENDIENTE PARA SERGIO (fase 7)**
 1. `.env.example` (los agentes no pueden editarlo): añadir al final

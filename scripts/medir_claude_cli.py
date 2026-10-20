@@ -1,7 +1,9 @@
-"""Mide en segundos una llamada real a claude: antes (json, solo --safe-mode) y después (ClienteClaudeCLI).
+"""Mide en segundos llamadas reales a claude: antes (json, solo --safe-mode), después (un proceso por mensaje)
+y persistente (un solo ClienteClaudeCLI precalentado: el 1.er mensaje y los siguientes sobre el mismo proceso).
 
 Uso: .venv/Scripts/python scripts/medir_claude_cli.py
-Hace 2 x REPETICIONES llamadas reales con tu suscripción; no es un test.
+Hace 3 x REPETICIONES + 1 llamadas reales con tu suscripción (REPETICIONES antes, REPETICIONES después,
+y en persistente el 1.º más REPETICIONES siguientes); no es un test.
 """
 import statistics
 import subprocess
@@ -26,8 +28,7 @@ def medir_antes() -> tuple[float, float]:
     return total, total  # sin streaming: el primer texto llega con la respuesta completa
 
 
-def medir_despues() -> tuple[float, float]:
-    cliente = ClienteClaudeCLI("sonnet", "medium")  # cliente nuevo: sin --resume, igual que ANTES
+def medir_mensaje(cliente: ClienteClaudeCLI) -> tuple[float, float]:
     primero = []
     t0 = time.perf_counter()
     cliente.al_texto = lambda _: primero or primero.append(time.perf_counter() - t0)
@@ -35,10 +36,35 @@ def medir_despues() -> tuple[float, float]:
     return primero[0], time.perf_counter() - t0
 
 
+def medir_despues() -> tuple[float, float]:
+    cliente = ClienteClaudeCLI("sonnet", "medium")  # cliente nuevo y sin precalentar: lanza claude al responder
+    try:
+        return medir_mensaje(cliente)
+    finally:
+        cliente.cerrar()
+
+
+def imprimir(nombre: str, medidas: list[tuple[float, float]]) -> None:
+    for i, (primero, total) in enumerate(medidas, 1):
+        print(f"{nombre} #{i}: primer texto {primero:5.2f} s | total {total:5.2f} s")
+    print(f"{nombre} (media): primer texto {statistics.mean(m[0] for m in medidas):5.2f} s"
+          f" | total {statistics.mean(m[1] for m in medidas):5.2f} s")
+
+
+def medir_persistente(cliente: ClienteClaudeCLI, espera: float = 3) -> None:
+    try:
+        cliente.precalentar(SISTEMA)  # como al arrancar Jarvis
+        # ponytail: espera fija que simula al usuario tecleando mientras claude arranca; si el 1.º sale lento,
+        # subirla o esperar a su evento system/init.
+        time.sleep(espera)
+        primero, total = medir_mensaje(cliente)
+        print(f"persistente 1.º: primer texto {primero:5.2f} s | total {total:5.2f} s")
+        imprimir("persistente siguientes", [medir_mensaje(cliente) for _ in range(REPETICIONES)])
+    finally:
+        cliente.cerrar()
+
+
 if __name__ == "__main__":
     for nombre, medir in (("antes  ", medir_antes), ("después", medir_despues)):
-        medidas = [medir() for _ in range(REPETICIONES)]
-        for i, (primero, total) in enumerate(medidas, 1):
-            print(f"{nombre} #{i}: primer texto {primero:5.2f} s | total {total:5.2f} s")
-        print(f"{nombre} media: primer texto {statistics.mean(m[0] for m in medidas):5.2f} s"
-              f" | total {statistics.mean(m[1] for m in medidas):5.2f} s")
+        imprimir(nombre, [medir() for _ in range(REPETICIONES)])
+    medir_persistente(ClienteClaudeCLI("sonnet", "medium"))

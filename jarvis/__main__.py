@@ -5,7 +5,7 @@ import sys
 from dotenv import load_dotenv
 
 from jarvis import voz
-from jarvis.bucle import conversar
+from jarvis.bucle import conversar, sistema_completo
 from jarvis.config import ErrorConfig, cargar_config
 from jarvis.llm import crear_cliente
 from jarvis.tools import cargar_herramientas
@@ -24,16 +24,23 @@ def main(argv: list[str] | None = None) -> int:
     if config.proveedor == "claude-cli":
         print("Aviso: el proveedor claude-cli no usa herramientas; para usarlas pon LLM_PROVIDER=claude "
               "u openrouter en .env.", file=sys.stderr)
-    if "--ui" in argv:  # la página local; con --voz también escucha y habla
-        return ui.lanzar(crear_cliente(config), cargar_herramientas(), os.environ, con_voz=voz.activada(argv, os.environ))
-    piezas = {}  # sin voz, conversar recibe exactamente (cliente, herramientas), como antes
-    if voz.activada(argv, os.environ):
-        try:
-            piezas = voz.preparar(os.environ)
-        except voz.ErrorVoz as e:
-            print(f"Voz desactivada: {e} Sigo solo con texto.", file=sys.stderr)
-    conversar(crear_cliente(config), cargar_herramientas(), **piezas)
-    return 0
+    cliente = crear_cliente(config)
+    if hasattr(cliente, "precalentar"):  # claude-cli: su proceso arranca mientras se prepara lo demás
+        cliente.precalentar(sistema_completo())  # el mismo sistema que usa cada turno
+    try:
+        if "--ui" in argv:  # la página local; con --voz también escucha y habla
+            return ui.lanzar(cliente, cargar_herramientas(), os.environ, con_voz=voz.activada(argv, os.environ))
+        piezas = {}  # sin voz, conversar recibe exactamente (cliente, herramientas), como antes
+        if voz.activada(argv, os.environ):
+            try:
+                piezas = voz.preparar(os.environ)
+            except voz.ErrorVoz as e:
+                print(f"Voz desactivada: {e} Sigo solo con texto.", file=sys.stderr)
+        conversar(cliente, cargar_herramientas(), **piezas)
+        return 0
+    finally:  # también con Ctrl+C o un error: no deja claude vivo
+        if hasattr(cliente, "cerrar"):
+            cliente.cerrar()
 
 
 if __name__ == "__main__":

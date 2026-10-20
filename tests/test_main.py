@@ -186,6 +186,51 @@ def test_ui_extremo_a_extremo(ui_simulada, red_local, monkeypatch):
     assert estado == 200 and datos["estado"] == "reposo"
 
 
+class ClientePersistente:
+    """Cliente falso con proceso propio: anota si se precalentó y cuántas veces se cerró."""
+
+    def __init__(self):
+        self.precalentado, self.cierres = None, 0
+
+    def precalentar(self, sistema):
+        self.precalentado = sistema
+
+    def cerrar(self):
+        self.cierres += 1
+
+
+@pytest.fixture
+def persistente(monkeypatch, capturado):
+    cliente = ClientePersistente()
+    monkeypatch.setattr(principal, "crear_cliente", lambda config: cliente)
+    monkeypatch.setattr(principal, "sistema_completo", lambda: "sistema del bucle")
+    return cliente
+
+
+def test_precalienta_con_el_sistema_del_bucle_y_cierra_al_terminar(persistente, capturado):
+    assert principal.main([]) == 0
+    assert persistente.precalentado == "sistema del bucle"
+    assert capturado[0][0][0] is persistente
+    assert persistente.cierres == 1
+
+
+@pytest.mark.parametrize("error", [RuntimeError("roto"), KeyboardInterrupt()])
+def test_cierra_el_cliente_si_conversar_falla(persistente, monkeypatch, error):
+    def falla(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(principal, "conversar", falla)
+    with pytest.raises(type(error)):
+        principal.main([])
+    assert persistente.cierres == 1
+
+
+def test_ui_precalienta_y_cierra(persistente, ui_simulada):
+    assert principal.main(["--ui"]) == 0
+    assert ui_simulada.llamadas[0][0][0] is persistente
+    assert persistente.precalentado == "sistema del bucle" and persistente.cierres == 1
+
+
 def test_sin_ui_no_lanza(capturado, monkeypatch):
     def prohibido(*args, **kwargs):
         raise AssertionError("no debía lanzar la UI")
