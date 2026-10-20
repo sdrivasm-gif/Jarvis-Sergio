@@ -102,6 +102,30 @@ Con el proveedor por defecto `claude-cli` el modelo NO puede usar herramientas. 
 - `LLM_PROVIDER=claude` y `ANTHROPIC_API_KEY=...`, o
 - `LLM_PROVIDER=openrouter` y `OPENROUTER_API_KEY=...`.
 
+## Voz
+
+Opcional y apagada por defecto: sin ella Jarvis funciona igual, solo con texto.
+
+```powershell
+pip install -e ".[voz]"
+python -m jarvis --voz
+```
+
+También se activa con `JARVIS_VOZ=on` en `.env`. Escucha con faster-whisper (local, la primera vez descarga el modelo `base`, sin clave) y habla con la voz de Windows. El audio no se guarda ni sale del equipo. Si faltan los extras, el micrófono o el modelo, avisa y sigue con texto.
+
+- Di "Jarvis" y la orden: "Jarvis, ¿qué hora es?". Si solo dices "Jarvis", responde "¿Sí, señor?" y la siguiente frase es la orden. Lo que se oye sin la palabra se descarta.
+- "salir" o "adiós" cierran; "parte del día" equivale a `/hoy`.
+- Las confirmaciones (enviar correo, etc.) se leen en voz alta: solo "sí" o "confirmo" aceptan; cualquier otra cosa o el silencio es NO.
+- Ctrl+C corta la voz y cierra Jarvis; durante una confirmación solo la cancela.
+
+Variables opcionales de `.env`:
+
+- `JARVIS_PALABRA_ACTIVACION` (por defecto `jarvis`; admite variantes: `jarvis,yarvis`).
+- `JARVIS_STT_MODELO` (`base`, `small`... o una carpeta local).
+- `JARVIS_VOZ_UMBRAL` (sensibilidad del micrófono, 400 por defecto; bájalo si no te detecta).
+
+Los WAV de `tests/audio/` salen de `python scripts/generar_audios_prueba.py`.
+
 ## Probar
 
 ```powershell
@@ -115,6 +139,7 @@ No necesita clave ni red: los tests usan un cliente simulado.
 - `jarvis/` : bucle (`bucle.py`), configuración (`config.py`) y punto de entrada (`__main__.py`).
 - `jarvis/llm/` : proveedores del modelo (`claude.py`, `openrouter.py`) y un cliente simulado (`falso.py`).
 - `jarvis/tools/` : herramientas que el modelo puede llamar, una por archivo.
+- `jarvis/voz.py` : voz opcional (escuchar y hablar).
 - `jarvis/integrations/` : clientes de Google (las herramientas siguen en `jarvis/tools/`).
 - `tests/` : pruebas con pytest.
 

@@ -2,6 +2,7 @@ import http.client
 import os
 import socket
 import subprocess
+import sys
 import urllib.request
 
 import pytest
@@ -23,6 +24,10 @@ def sin_efectos_reales(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", _prohibido)
     monkeypatch.setattr(socket.socket, "connect_ex", _prohibido)
     monkeypatch.setattr(http.client.HTTPConnection, "connect", _prohibido)  # HTTPSConnection lo hereda vía super()
+    # Ningún test abre el micrófono ni el altavoz: importar estos módulos da ImportError.
+    monkeypatch.setitem(sys.modules, "sounddevice", None)
+    monkeypatch.setitem(sys.modules, "pyaudio", None)
+    monkeypatch.delenv("JARVIS_VOZ", raising=False)  # la voz solo se activa si el test lo pide
 
 
 @pytest.fixture(autouse=True)

@@ -97,3 +97,33 @@ def entradas(*textos):
         return valor
 
     return entrada
+
+
+class OyenteFalso:
+    """Oyente simulado: devuelve cada texto (None = silencio); si es una excepción, la lanza; agotado → EOFError."""
+
+    def __init__(self, *textos):
+        self.pendientes = list(textos)
+        self.escuchas = 0
+
+    def escuchar(self):
+        self.escuchas += 1
+        if not self.pendientes:
+            raise EOFError
+        valor = self.pendientes.pop(0)
+        if isinstance(valor, BaseException):
+            raise valor
+        return valor
+
+
+class HablanteFalso:
+    """Hablante simulado: anota lo que diría (nunca suena); con `falla`, lanza esa excepción."""
+
+    def __init__(self, falla: Exception | None = None):
+        self.falla = falla
+        self.dichos = []
+
+    def decir(self, texto):
+        if self.falla:
+            raise self.falla
+        self.dichos.append(texto)

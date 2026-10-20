@@ -347,3 +347,17 @@ def test_recordatorio_con_cuando_null_no_tumba_el_aviso(tmp_path):
     impreso = []
     bucle.avisar_vencidos(impreso.append, datetime(2026, 10, 20, 12, 0))
     assert len(impreso) == 1 and impreso[0].startswith("Error en los recordatorios: ")
+
+
+def test_sin_fragmento_no_transmite():
+    class ClienteQueTransmite:
+        al_texto = None
+
+        def responder(self, mensajes, herramientas, sistema):
+            assert self.al_texto is None  # con fragmento=None (voz) no se engancha el streaming
+            return Respuesta(texto="hola")
+
+    cliente, impreso = ClienteQueTransmite(), []
+    conversar(cliente, {}, entrada=entradas("hola"), salida=impreso.append, fragmento=None)
+    assert impreso == ["jarvis> hola", "Hasta luego."]
+    assert cliente.al_texto is None

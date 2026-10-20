@@ -33,3 +33,10 @@ def test_bloquea_procesos():
         subprocess.Popen(["whoami"])
     with pytest.raises(AssertionError, match="acción real"):
         subprocess.run(["whoami"])
+
+
+def test_sin_microfono_ni_altavoz():
+    with pytest.raises(ImportError):
+        import sounddevice  # noqa: F401
+    with pytest.raises(ImportError):
+        import pyaudio  # noqa: F401

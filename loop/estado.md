@@ -1,9 +1,11 @@
 # Estado del bucle
 
-Fase actual: 4 — cerrada (rama `fase-3`; el commit y la etiqueta `v0.4-fase4` los hace la sesión principal; goal: goals/06-noche-fases-3-a-6.md)
+Fase actual: 5 — cerrada (rama `fase-3`; el commit y la etiqueta `v0.5-fase5` los hace la sesión principal; goal: goals/06-noche-fases-3-a-6.md)
 Último goal cerrado: goals/02-herramientas.md (commit 99f84ee)
 
 ## Hecho
+- Fase 5 (cerrada): revisor → APROBADO en la 1.ª vuelta. `pytest -q`: 305 passed, 1 skipped (tests/test_voz_real.py: no está faster_whisper), exit 0, sin claves. Construido: voz a texto con faster-whisper `base` (local), texto a voz con SAPI por `powershell.exe`, micrófono con sounddevice (`jarvis/voz.py`), activación por palabra ("Jarvis"), confirmación por voz que falla a NO (solo "sí"/"confirmo"), `--voz` o `JARVIS_VOZ=on` (si falla, sigue con texto) y 4 WAV de prueba en tests/audio/ (`scripts/generar_audios_prueba.py`).
+- Fase 5 (diseño): pesado decidió faster-whisper (`base`, local) para la voz a texto, la voz de Windows (SAPI vía `powershell.exe`, sin dependencias) para el texto a voz y sounddevice para el micrófono. La voz se conecta a `conversar` inyectando entrada, salida y confirmación, sin duplicar el bucle. Diseño: docs/decisiones/005-voz-fase-5.md. La especificación para ligero y constructor está abajo, en "Especificación fase 5".
 - Fase 4 (cerrada): revisor → 1.ª vuelta CAMBIOS REQUERIDOS (el filtro no veía el formato .env, `cuando=None`, registros dañados), 2.ª APROBADO. `pytest -q`: 221 passed, exit 0, sin claves. Diseño: docs/decisiones/004-memoria-recordatorios-hoy-fase-4.md. Construido:
   - Memoria persistente (`memoria`, `memoria_borrar`, `memoria_borrar_todo`) en `datos/memoria.json`, con filtro de secretos (`jarvis/secretos.py`: claves, tokens, contraseñas, tarjetas con Luhn) también en `notas`.
   - Recordatorios (`recordatorios`, `recordatorio_cancelar`) con disparo único, escritura atómica con fsync y aviso en el bucle.
@@ -24,6 +26,35 @@ Fase actual: 4 — cerrada (rama `fase-3`; el commit y la etiqueta `v0.4-fase4` 
 - Verificador (última pasada): `pytest -q` sin claves → 100 passed, exit 0; herramientas → `['abrir_app', 'buscar_archivos', 'buscar_web', 'hora', 'notas']`; personalidad.md sin cambios; sin `shell=True`; `datos/` en .gitignore y no creada; sin claves.
 
 ## PENDIENTE PARA SERGIO (acumulativo)
+**Fase 5** (diseño: docs/decisiones/005-voz-fase-5.md)
+1. Instalar los extras de voz: `pip install -e ".[voz]"` (faster-whisper y sounddevice; son del orden de cientos de MB entre ctranslate2, av y onnxruntime). Sin ellos, Jarvis sigue funcionando solo con texto.
+2. Modelo de voz a texto. Elige una de las dos opciones:
+   - (a) No hagas nada: con `JARVIS_STT_MODELO=base` (el valor por defecto), la primera vez que uses `--voz` se descargan ≈145 MB de Hugging Face, sin clave, a `%USERPROFILE%\.cache\huggingface`.
+   - (b) Descárgalo tú: los archivos `config.json`, `model.bin`, `tokenizer.json` y `vocabulary.txt` de `Systran/faster-whisper-base` van a una carpeta, por ejemplo `C:\modelos\faster-whisper-base`, y pones `JARVIS_STT_MODELO=C:\modelos\faster-whisper-base`.
+   - Si `base` entiende mal, prueba `small` (≈485 MB, unas 3 veces más lento). **Decide** con cuál te quedas.
+3. Comprueba que tienes una voz SAPI en español: `powershell.exe -NoProfile -Command "Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).GetInstalledVoices().VoiceInfo | Select-Object Name, Culture"`. Jarvis elige `es-MX` y, si no hay, cualquier `es-*`. Si no aparece ninguna, añade el idioma Español (México) con "Texto a voz" en Configuración > Hora e idioma (sin verificar si basta para `System.Speech`). Si `--voz` no suena, prueba ese comando y avisa: el plan B está en la decisión 005.
+4. Añadir al final de `.env.example` (los agentes no pueden editarlo), comentadas: `# JARVIS_VOZ=off`, `# JARVIS_PALABRA_ACTIVACION=jarvis`, `# JARVIS_STT_MODELO=base` y `# JARVIS_VOZ_UMBRAL=400`.
+5. Prueba manual con micrófono real: `python -m jarvis --voz`, o `JARVIS_VOZ=on` en `.env`.
+   - "Jarvis, ¿qué hora es?" debe responder hablando y sin leer asteriscos ni URLs.
+   - "Jarvis" a secas, luego una pausa y la orden: responde "¿Sí, señor?" y obedece.
+   - Habla sin decir "Jarvis": no debe pasar nada.
+   - "Jarvis, recuérdame en 1 minuto beber agua" y quédate callado: el aviso debe sonar solo, en pocos segundos, y una sola vez.
+   - Pide crear un evento de prueba:
+     - responde "no" y luego quédate callado: no se crea;
+     - responde "sí, pero espera": no se crea;
+     - responde "sí": se crea.
+   - Ctrl+C mientras habla corta la voz. "Jarvis, salir" termina.
+6. Si no te oye o se activa con el ruido, ajusta `JARVIS_VOZ_UMBRAL`: bájalo (por ejemplo, 200) si no te oye o súbelo (800–1500) si se activa solo. Si escribe mal "Jarvis" (por ejemplo "Harvis"), añade variantes: `JARVIS_PALABRA_ACTIVACION=jarvis,harvis,yarvis`.
+7. **Decisiones tuyas:**
+   - (a) La confirmación solo acepta "sí" o "confirmo"; "claro", "vale" o "dale" cancelan. ¿Lo dejas así?
+   - (b) No se interrumpe a Jarvis hablándole: sin cancelación de eco se cortaría solo. ¿Usarás auriculares, y quieres que se añada?
+   - (c) La orden es solo lo que dices **después** de "Jarvis": "¿qué hora es, Jarvis?" se toma como "Jarvis" a secas.
+   - (d) Si commitear los `voz_*.wav` que genera el punto 8.
+8. Opcional, para probar el modelo real sin micrófono: `python scripts\generar_audios_prueba.py --con-voz` (crea `tests/audio/voz_*.wav` con la voz de Windows). Luego `$env:JARVIS_STT_MODELO="C:\modelos\faster-whisper-base"; .venv\Scripts\python -m pytest tests/test_voz_real.py -v`. Necesita la opción (b) del punto 2: los tests nunca descargan nada.
+9. Privacidad: el audio no se guarda ni sale del equipo. Lo dicho sin la palabra de activación se transcribe en local y se descarta. La orden transcrita va al proveedor del modelo, igual que el texto tecleado.
+10. Ctrl+C en modo voz corta la voz y cierra Jarvis (en una confirmación, solo la cancela). Aceptado.
+11. Mejoras opcionales del revisor: borrar los Protocol `Oyente`/`Hablante` de `jarvis/voz.py` y la guardia de `pyaudio` si sobran. La fase 6 puede usar `Oyente`/`Hablante`, así que decide después de ella.
+
 **Fase 4** (diseño: docs/decisiones/004-memoria-recordatorios-hoy-fase-4.md)
 1. Guardar un recuerdo no pide `[s/N]` (solo escribe en `datos/`). Riesgo: inyección vía correo (un correo leído por el modelo podría hacerle guardar un "recuerdo" falso que luego va al prompt). Arreglo propuesto: separar una herramienta `memoria_guardar` con `requiere_confirmacion = True` y dejar `memoria` solo para buscar/listar. Decide si lo quieres.
 2. En la terminal, un recordatorio avisa la próxima vez que aparece `tú>` (al enviar algo o pulsar Enter), no en tiempo real. El aviso en tiempo real llega con la voz o la UI (fases 5 y 6). ¿Te basta así?
@@ -48,14 +79,526 @@ Fase actual: 4 — cerrada (rama `fase-3`; el commit y la etiqueta `v0.4-fase4` 
 **Fase 2**: prueba manual descrita en "Bloqueos / dudas" (apps, DuckDuckGo, personalidad).
 
 ## Pendiente inmediato
-- Tú: revisar el diff (`git diff` y `git status`) y la prueba manual de arriba. El commit y la etiqueta `v0.4-fase4` los hace la sesión principal (las fases 3 y 4 van juntas en el working tree de `fase-3`).
+- Tú: revisar el diff (`git diff` y `git status`) y la prueba manual de arriba. El commit y la etiqueta `v0.5-fase5` los hace la sesión principal (las fases 3, 4 y 5 pueden ir juntas en el working tree de `fase-3`).
 - Siguiente: goals/03-voz.md (reescribirlo con el equipo actual antes de lanzarlo).
+- Fase 5 (goal 06): el diseño está listo. Toca a ligero y constructor seguir el orden de "Especificación fase 5" (goals/03-voz.md queda reemplazado por el goal 06).
 
 ## Bloqueos / dudas para el usuario
 - **PREGUNTA PARA EL USUARIO (claude-cli y herramientas):** con el proveedor por defecto (`claude-cli`) las cinco herramientas existen, pero el modelo no puede usarlas. En esta fase solo se avisa al arrancar y se le dice al modelo que no las tiene (decisión 002, punto 7). Para tu prueba manual de la fase 2, pon `LLM_PROVIDER=claude` (con ANTHROPIC_API_KEY) u `openrouter` (con OPENROUTER_API_KEY) en `.env`. ¿Quieres un goal propio para dar herramientas a claude-cli, o prefieres cambiar el proveedor por defecto?
 - **Para revisar (decisión de pesado, cambiar es una línea):** `buscar_web` no pide confirmación, porque solo lee y no tiene efectos, pero la consulta sale a DuckDuckGo. Si prefieres que pida confirmación en cada búsqueda, es `requiere_confirmacion = True` en jarvis/tools/buscar_web.py y ajustar su test.
 - Prueba manual solo tuya: que `Get-StartApps` y `os.startfile("shell:AppsFolder\\...")` abran tus apps, que DuckDuckGo responda sin captcha y que la personalidad (varias líneas) llegue entera a `claude -p`. Si algo falla, las alternativas están en la decisión 002, en Consecuencias.
 - Siguen de la fase 1: el ID por defecto de OpenRouter (`anthropic/claude-sonnet-5-5`) no está verificado; ninguna prueba llamó a una API real; hay deuda `ponytail:` (respuesta vacía tras herramientas, historial sin límite, confirmación solo por terminal).
+
+---
+
+# Especificación fase 5 (para ligero y constructor)
+
+Fuente: docs/decisiones/005-voz-fase-5.md. Se mantienen las convenciones de las fases 2 a 4:
+- Nombres en español y `# ponytail: <límite>; <cómo mejorarlo>` en cada atajo.
+- Python 3.11+ y TDD (primero el test que falla).
+- **Ningún efecto al importar.**
+- Datos de mentira (`@example.com`).
+
+Reglas propias de esta fase:
+- **`jarvis/voz.py` solo importa al cargarse la biblioteca estándar y `jarvis.bucle`.** `faster_whisper`, `sounddevice` y `numpy` se importan **dentro** de las funciones que los usan, y nunca se importa numpy en nuestro código.
+- En `voz.py` no hay ningún `print` ni `logging`: lo visible pasa por `mostrar` (inyectable, `print` por defecto).
+- **El audio no se escribe nunca en disco.** Solo se abre `wave.open(ruta, "rb")` para leer y `wave.open(io.BytesIO(), "wb")` en memoria.
+- **Procesos:** siempre `subprocess.Popen` resuelto al llamar (`self.abrir or subprocess.Popen`), con una lista de argumentos y nunca con `shell=True`.
+- Ningún test usa micrófono, altavoz, red ni procesos. Los fakes se importan con `from clientes_falsos import ...`.
+
+## Archivos
+
+| Archivo | Quién | Qué |
+|---|---|---|
+| `tests/conftest.py` + `tests/test_guardia.py` | ligero (PRIMERO) | bloquear `sounddevice`/`pyaudio` y borrar `JARVIS_VOZ` en cada test |
+| `scripts/generar_audios_prueba.py` + `tests/audio/*.wav` (4, commiteados) + `tests/test_audios.py` | ligero (PRIMERO) | WAV deterministas con la biblioteca estándar |
+| `pyproject.toml` | ligero (PRIMERO) | extra `voz = ["faster-whisper", "sounddevice"]` |
+| `jarvis/voz.py` + `tests/test_voz.py` | constructor | todo lo de voz (texto, audio, motores, piezas, preparar) |
+| `tests/clientes_falsos.py` | constructor | añadir `OyenteFalso` y `HablanteFalso` |
+| `jarvis/bucle.py` + `tests/test_bucle.py` | constructor | con `fragmento=None` no hay streaming (una condición) |
+| `jarvis/__main__.py` + `tests/test_main.py` | constructor | `--voz` / `JARVIS_VOZ=on`; si falla, solo texto |
+| `tests/test_voz_real.py` | constructor | opcional: faster-whisper real; se salta si falta |
+| `jarvis/README.md` | ligero (al final) | sección Voz |
+
+No se tocan: `jarvis/personalidad.md`, `jarvis/config.py`, `jarvis/tools/` (siguen siendo 19 herramientas), `jarvis/llm/`, `jarvis/integrations/`, las funciones de la fase 4, `.env*` ni `.gitignore`. Tampoco `pyproject.toml` `packages`: `voz.py` es un módulo de `jarvis`.
+
+## tests/conftest.py (ligero, primero)
+Al final de `sin_efectos_reales` (añade `import sys`):
+```python
+    # Ningún test abre el micrófono ni el altavoz: importar estos módulos da ImportError.
+    monkeypatch.setitem(sys.modules, "sounddevice", None)
+    monkeypatch.setitem(sys.modules, "pyaudio", None)
+    monkeypatch.delenv("JARVIS_VOZ", raising=False)  # la voz solo se activa si el test lo pide
+```
+**tests/test_guardia.py**, un test nuevo `test_sin_microfono_ni_altavoz`: `with pytest.raises(ImportError): import sounddevice`, y lo mismo con `import pyaudio`.
+Los 221 tests tienen que seguir en verde. Si cae alguno, se para y se avisa.
+
+## scripts/generar_audios_prueba.py (ligero, primero)
+```python
+"""Genera los WAV de prueba de tests/audio/ con la biblioteca estándar: mismos bytes en cada ejecución.
+Con --con-voz sintetiza además frases con la voz de Windows (SAPI) para las pruebas opcionales con motores reales."""
+FRECUENCIA = 16000
+MUESTRAS_POR_BLOQUE = 480          # 30 ms
+CARPETA = Path(__file__).resolve().parents[1] / "tests" / "audio"
+FRASES = {"voz_hora": "Jarvis, ¿qué hora es?", "voz_si": "Sí.", "voz_no": "No, cancela."}
+
+def escribir_wav(ruta: Path, muestras: list[int]) -> Path   # wave "wb": 1 canal, sampwidth 2, 16000 Hz, array("h", muestras).tobytes()
+def silencio(bloques: int) -> list[int]                       # [0] * (bloques * 480)
+def tono(bloques: int, amplitud: int = 8000, hz: int = 440) -> list[int]   # [round(amplitud * math.sin(2 * math.pi * hz * n / FRECUENCIA)) for n in range(bloques * 480)]
+def ruido(bloques: int, amplitud: int = 100, semilla: int = 5) -> list[int]  # r = random.Random(semilla); [r.randint(-amplitud, amplitud) for _ in range(bloques * 480)]
+def generar(carpeta: Path = CARPETA) -> list[Path]
+def generar_con_voz(carpeta: Path = CARPETA) -> list[Path]
+```
+- `generar` hace `carpeta.mkdir(parents=True, exist_ok=True)` y escribe, en este orden, y devuelve las 4 rutas:
+  - `silencio.wav` = `silencio(33)`
+  - `tono.wav` = `silencio(20) + tono(40) + silencio(40)` (100 bloques)
+  - `ruido_bajo.wav` = `ruido(33)`
+  - `chasquido.wav` = `silencio(10) + tono(2) + silencio(21)`
+- `generar_con_voz` (no la ejecutan los tests ni el verificador; es para Sergio): por cada frase de `FRASES` llama a `subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", <script en base64 UTF-16LE>], input=<base64 de la ruta> + b"\n" + <base64 del texto>, check=True)`. El script hace:
+  - lee las dos líneas de `[Console]::In`
+  - `SetOutputToWaveFile(ruta, [System.Speech.AudioFormat.SpeechAudioFormatInfo]::new(16000, 'Sixteen', 'Mono'))`
+  - elige una voz `es-*` y llama a `Speak(texto)`
+
+  Después escribe `voz_*.txt` con la frase en utf-8.
+- `if __name__ == "__main__":` → `generar()`, y además `generar_con_voz()` si `"--con-voz" in sys.argv`. Imprime las rutas escritas (en el script, `print` está permitido).
+- `# ponytail:` `array("h")` usa el orden nativo de bytes (little-endian en x86/ARM Windows).
+
+**Ejecútalo una vez y commitea** `tests/audio/silencio.wav`, `tono.wav`, `ruido_bajo.wav` y `chasquido.wav` (≈190 KB en total).
+
+**tests/test_audios.py** (`AUDIO = Path(__file__).parent / "audio"`):
+1. `test_audios_validos`: cada uno de los 4 abre con `wave`, con 1 canal, `sampwidth` 2 y 16000 Hz, y tiene `getnframes()` igual a `33*480` (silencio, ruido y chasquido) o `100*480` (tono). Cada archivo pesa menos de 100 000 bytes.
+2. `test_audios_reproducibles(tmp_path)`: carga el script con `importlib.util.spec_from_file_location("generar_audios_prueba", <raíz>/"scripts"/"generar_audios_prueba.py")` y llama a `generar(tmp_path)`. Cada archivo generado es **idéntico byte a byte** al de `tests/audio/`.
+
+## pyproject.toml (ligero, primero)
+```toml
+[project.optional-dependencies]
+dev = ["pytest"]
+voz = ["faster-whisper", "sounddevice"]   # ponytail: sin versiones fijadas; fijarlas cuando algo se rompa
+```
+
+## jarvis/voz.py (constructor)
+```python
+"""Voz de Jarvis: escucha (faster-whisper local) y habla (voz de Windows). Opcional: sin los extras [voz] Jarvis sigue con texto."""
+# Importa al cargarse solo stdlib: array, base64, contextlib, io, math, re, subprocess, time, unicodedata, wave,
+# collections.deque, pathlib.Path, typing (Protocol, Callable, Iterable, Iterator); y from jarvis.bucle import legible, texto_confirmacion
+
+FRECUENCIA = 16000
+MUESTRAS_POR_BLOQUE = 480                 # 30 ms
+BYTES_POR_BLOQUE = 960
+UMBRAL = 400                              # RMS int16 a partir del cual un bloque es voz
+BLOQUES_INICIO = 3                        # 90 ms seguidos de voz para empezar
+BLOQUES_PREVIOS = 10                      # 300 ms antes del inicio (no cortar la primera sílaba)
+BLOQUES_SILENCIO = 25                     # 0,75 s de silencio terminan la frase
+BLOQUES_ESPERA = 267                      # 8 s sin voz → None
+BLOQUES_MAXIMOS = 500                     # 15 s como máximo
+MODELO_POR_DEFECTO = "base"
+PALABRA_POR_DEFECTO = "jarvis"
+ACTIVAR = frozenset({"on", "si", "sí", "1", "true"})
+AFIRMATIVAS_VOZ = frozenset({"si", "confirmo"})        # ya normalizadas (sin tilde)
+COMANDOS_VOZ = {"salir": "/salir", "adios": "/salir", "parte del dia": "/hoy"}
+RESPUESTA_ACTIVACION = "¿Sí, señor?"
+PIDE_SI = "Di sí para confirmar; cualquier otra respuesta cancela."
+MAX_HABLADO = 1200
+CORTE = "… El resto está en pantalla."
+FALTAN_DEPENDENCIAS = 'Faltan las dependencias de voz: instálalas con  pip install -e ".[voz]"  (ver jarvis/README.md).'
+URL = re.compile(r"(?:https?://|www\.)[^\s()<>]*[^\s()<>.,;:!?'\"]", re.IGNORECASE)
+POWERSHELL = "powershell.exe"             # Windows PowerShell 5.1 trae System.Speech; pwsh 7 no
+SCRIPT_SAPI = (
+    "$ErrorActionPreference = 'Stop'\n"
+    "Add-Type -AssemblyName System.Speech\n"
+    "$t = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String([Console]::In.ReadToEnd().Trim()))\n"
+    "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer\n"
+    "$v = $s.GetInstalledVoices() | Where-Object { $_.Enabled -and $_.VoiceInfo.Culture.Name -like 'es*' } |"
+    " Sort-Object { $_.VoiceInfo.Culture.Name -ne 'es-MX' } | Select-Object -First 1\n"
+    "if ($v) { $s.SelectVoice($v.VoiceInfo.Name) }\n"
+    "$s.Speak($t)\n"
+)
+COMANDO_SAPI = [POWERSHELL, "-NoProfile", "-NonInteractive", "-EncodedCommand",
+                base64.b64encode(SCRIPT_SAPI.encode("utf-16-le")).decode("ascii")]
+
+class ErrorVoz(Exception): ...
+
+class Oyente(Protocol):
+    def escuchar(self) -> str | None: ...       # texto transcrito, o None si hubo silencio
+class Hablante(Protocol):
+    def decir(self, texto: str) -> None: ...    # bloquea hasta terminar de hablar
+
+# --- texto (puro) ---
+def normalizar(texto: str) -> str
+def palabras_activacion(entorno) -> list[str]
+def activada(argv: list[str], entorno) -> bool
+def umbral_de(entorno) -> int
+def quitar_palabra(texto: str | None, palabras: list[str]) -> str | None
+def es_afirmativa(texto: str | None, palabras: Iterable[str] = ()) -> bool
+def limpiar_para_voz(texto: str) -> str
+def texto_confirmacion_hablado(nombre: str, argumentos: dict) -> str
+# --- audio (puro, biblioteca estándar) ---
+def rms(bloque: bytes) -> float
+def bloques_de_wav(ruta) -> Iterator[bytes]
+def recortar_frase(bloques: Iterable[bytes], umbral: int = UMBRAL, espera: int = BLOQUES_ESPERA,
+                   silencio_fin: int = BLOQUES_SILENCIO, maximo: int = BLOQUES_MAXIMOS,
+                   previos: int = BLOQUES_PREVIOS, inicio: int = BLOQUES_INICIO) -> bytes | None
+def wav_en_memoria(pcm: bytes) -> io.BytesIO
+# --- motores reales (carga perezosa) ---
+def bloques_del_microfono() -> Iterator[bytes]
+def transcriptor_whisper(modelo: str, palabra: str) -> Callable[[bytes], str]
+class OyenteLocal:
+    def __init__(self, transcribir: Callable[[bytes], str], fuente: Callable[[], Iterator[bytes]] = bloques_del_microfono, umbral: int = UMBRAL)
+    def escuchar(self) -> str | None
+class HablanteSAPI:
+    def __init__(self, abrir=None)
+    def decir(self, texto: str) -> None
+# --- conexión con bucle.conversar ---
+def decir_sin_fallar(hablante, texto: str, mostrar) -> None
+def entrada_por_voz(oyente, hablante, palabras: list[str], mostrar=print) -> Callable[[str], str]
+def salida_por_voz(hablante, mostrar=print) -> Callable[[str], None]
+def confirmar_por_voz(oyente, hablante, palabras: list[str], mostrar=print) -> Callable[[str, dict], bool]
+def piezas_de_voz(oyente, hablante, palabras: list[str], mostrar=print) -> dict
+def preparar(entorno, mostrar=print) -> dict
+```
+
+**Texto:**
+- `normalizar`: quita las tildes con `unicodedata.normalize("NFKD", texto)` y descarta `unicodedata.combining`. Luego hace `casefold()`, cambia `[\W_]+` por un espacio y colapsa los espacios. `"¡Sí, CONFIRMO!"` → `"si confirmo"` y `"Parte del Día"` → `"parte del dia"`.
+- `palabras_activacion(entorno)`: `[p.strip() for p in (entorno.get("JARVIS_PALABRA_ACTIVACION") or PALABRA_POR_DEFECTO).split(",") if normalizar(p)]`, o `[PALABRA_POR_DEFECTO]` si queda vacía.
+- `activada(argv, entorno)`: `"--voz" in argv or entorno.get("JARVIS_VOZ", "").strip().casefold() in ACTIVAR`.
+- `umbral_de(entorno)`: sin valor o en blanco → `UMBRAL`. `int(valor)` en `1..32767`; si no → `ErrorVoz(f"JARVIS_VOZ_UMBRAL='{valor}' no es válido; usa un entero entre 1 y 32767.")`.
+- `quitar_palabra`:
+  - Con `texto` vacío o None → `None`.
+  - `fichas = [(normalizar(m.group()), m.start(), m.end()) for m in re.finditer(r"\w+", texto)]`.
+  - Por cada palabra: `objetivo = normalizar(palabra).split()`, con k fichas. Se busca la **primera** posición i en que las fichas i..i+k-1 (normalizadas) son `objetivo`, y se devuelve `texto[fin_de_la_última:].lstrip(" ,.;:!?-").strip()`; puede ser `""` si solo se dijo la palabra.
+  - Si ninguna aparece → `None`.
+  - La orden es solo lo que va **después** de la palabra.
+- `es_afirmativa`: sin texto → False. `fichas = normalizar(texto).split()` sin las fichas de `normalizar(p).split()` para cada p de `palabras`. Devuelve `bool(fichas) and all(f in AFIRMATIVAS_VOZ for f in fichas)`.
+- `limpiar_para_voz`, en este orden:
+  1. `re.sub(r"```.*?(?:```|\Z)", " (código omitido) ", texto, flags=re.S)`
+  2. `re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", t)`
+  3. `URL.sub("enlace", t)`
+  4. Por cada línea de `t.splitlines()`:
+     - (a) quita al principio `^\s*(?:#{1,6}\s+|>\s*|[-*+•]\s+)`.
+     - (b) si `re.fullmatch(r"[\s|:\-=_*]*", linea)` → se descarta (vacías, `---` y separadores de tabla).
+     - (c) si tiene `"|"` → `", ".join(c.strip() for c in linea.strip().strip("|").split("|") if c.strip())`.
+     - (d) `re.sub(r"[*`~]+", "", linea).replace("_", " ")`.
+     - (e) se queda con los caracteres que cumplen `c.isprintable() and (unicodedata.category(c) != "So" or c == "°")`.
+     - (f) `" ".join(linea.split()).strip(" ,")`; si queda vacía, se descarta.
+     - (g) si no acaba en uno de `.!?:;,…` se le añade `"."`.
+  5. Se unen con `" "`. Si pasa de `MAX_HABLADO`, queda `hablado[:MAX_HABLADO].rsplit(" ", 1)[0] + CORTE`.
+  6. Salidas exactas (son los tests):
+     - `"Son las **10:00**. Fuente: https://example.com/hora."` → `"Son las 10:00. Fuente: enlace."`
+     - `"# Agenda\n\n- Reunión con *Ana* a las 9\n- Ver [el informe](https://example.com/i)\n\n| hora | qué |\n|---|---|\n| 9:00 | café ☕ |"` → `"Agenda. Reunión con Ana a las 9. Ver el informe. hora, qué. 9:00, café."`
+     - ``"Usa esto:\n```python\nprint('hola')\n```\nY listo"`` → `"Usa esto: (código omitido). Y listo."`
+     - `"¿Qué tal, señor? ¡Bien!"` → igual
+     - `""`, `"---"` y `"**"` → `""`
+     - `"id_recuerdo: 3"` → `"id recuerdo: 3."`
+     - `"Hola\x1b[31m rojo‮"` → sin `\x1b` ni `‮`
+     - `"palabra " * 400` → acaba en `CORTE` y mide `<= MAX_HABLADO + len(CORTE)`
+- `texto_confirmacion_hablado`:
+  - Las partes, en orden, son:
+    - `f"¿Ejecutar {legible(nombre).replace('_', ' ')}?"`
+    - por cada argumento, en el **mismo orden** que `texto_confirmacion` (`sorted(argumentos.items(), key=lambda kv: "\n" in str(kv[1]))`), `f"{legible(k).replace('_', ' ')}: {' '.join(legible(v).split())}."`
+    - `PIDE_SI`
+  - Se unen con `" "`. **Sin recortar ni quitar URLs:** se oye lo que se confirma.
+  - `("correo_enviar", {"para": "ana@example.com", "cuerpo": "Hola\nAna"})` → `"¿Ejecutar correo enviar? para: ana@example.com. cuerpo: Hola Ana. Di sí para confirmar; cualquier otra respuesta cancela."`
+  - `("memoria_borrar_todo", {})` → `"¿Ejecutar memoria borrar todo? Di sí para confirmar; cualquier otra respuesta cancela."`
+  - `# ponytail:` un cuerpo muy largo se lee entero; si molesta, cortarlo y remitir a la pantalla.
+
+**Audio:**
+- `rms`: `a = array("h"); a.frombytes(bloque)`. Sin muestras → `0.0`; si no, `math.sqrt(sum(m * m for m in a) / len(a))`.
+- `bloques_de_wav(ruta)`: es un generador con `with wave.open(str(ruta), "rb") as w:`. Si no es mono, de 16 bits y a 16000 Hz → `ValueError(f"el audio debe ser WAV mono de 16 bits a 16000 Hz: {Path(ruta).name}")`. Va devolviendo `w.readframes(MUESTRAS_POR_BLOQUE)` mientras mida exactamente `BYTES_POR_BLOQUE`; el último bloque, si está incompleto, se descarta.
+- `recortar_frase`:
+  - Estado inicial: `antes = deque(maxlen=previos)`, `frase = None`, `seguidos = callado = esperados = 0`.
+  - Por cada bloque, `voz = rms(b) >= umbral`.
+  - Si `frase is None`:
+    - `antes.append(b)`; `seguidos = seguidos + 1 if voz else 0`.
+    - Si `seguidos >= inicio` → `frase = list(antes)`.
+    - Si no, `esperados += 1`, y si `esperados >= espera` → `return None`.
+    - `continue`.
+  - Si ya hay frase:
+    - `frase.append(b)`; `callado = 0 if voz else callado + 1`.
+    - `if callado >= silencio_fin or len(frase) >= maximo: break`.
+  - Al final: `None` si `frase is None`; si no, `b"".join(frase)`.
+  - Si el audio se acaba a mitad de una frase, se devuelve lo que se juntó.
+- `wav_en_memoria(pcm)`: un `io.BytesIO` con un WAV mono de 16 bits a 16 kHz escrito por `wave`, con `seek(0)`. Nada en disco.
+
+**Motores reales:**
+- `bloques_del_microfono` (sin test: necesita micrófono): `import sounddevice as sd` dentro. Hace `with sd.RawInputStream(samplerate=FRECUENCIA, channels=1, dtype="int16", blocksize=MUESTRAS_POR_BLOQUE) as flujo: while True: datos, _ = flujo.read(MUESTRAS_POR_BLOQUE); yield bytes(datos)`. Al cerrar el generador se cierra el flujo.
+- `transcriptor_whisper(modelo, palabra)`:
+  - `from faster_whisper import WhisperModel` dentro, y `m = WhisperModel(modelo, device="cpu", compute_type="int8")`.
+  - Devuelve `transcribir(pcm)`: `segmentos, _ = m.transcribe(wav_en_memoria(pcm), language="es", beam_size=1, vad_filter=True, condition_on_previous_text=False, initial_prompt=palabra.strip().capitalize() + ".")` → `" ".join(s.text.strip() for s in segmentos if s.text.strip())`.
+  - `# ponytail:` `beam_size=1` por latencia; `initial_prompt` sesga a "Jarvis" (si da activaciones falsas, quitarlo).
+- `OyenteLocal.escuchar`: `with contextlib.closing(self.fuente()) as bloques: pcm = recortar_frase(bloques, self.umbral)`. Así **el micrófono se cierra en cada escucha** y no queda audio viejo de Jarvis hablando. Si `pcm is None` → `None`; si no, `self.transcribir(pcm).strip() or None`.
+- `HablanteSAPI.decir(texto)`:
+  1. `if not texto.strip(): return` (sin proceso).
+  2. `abrir = self.abrir or subprocess.Popen` y `proceso = abrir(COMANDO_SAPI, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))`.
+  3. `try`:
+     - `proceso.stdin.write(base64.b64encode(texto.encode("utf-8")))`
+     - `proceso.stdin.close()`
+     - `while proceso.poll() is None: time.sleep(0.05)` (así Ctrl+C entra)
+  4. `finally: if proceso.poll() is None: proceso.kill()`.
+  5. Si `proceso.returncode != 0` → `ErrorVoz(f"la voz de Windows falló (código {proceso.returncode}).")`.
+  6. `# ponytail:`
+     - un PowerShell por frase (≈0,5–1 s de arranque); un proceso persistente sería más rápido.
+     - no se interrumpe cuando habla el usuario (sin cancelación de eco, el micrófono oiría a Jarvis); con auriculares, vigilar el micrófono mientras habla y llamar a `proceso.kill()`.
+     - sin detalle del error (stderr a DEVNULL para no bloquear la tubería).
+
+**Conexión con el bucle:**
+- `decir_sin_fallar`: `try: hablante.decir(texto) except Exception as e: mostrar(f"(no pude hablar: {e})")`.
+- `entrada_por_voz`: es un cierre con `despierto = False`, y la función que devuelve es `entrada(prompt="") -> str`:
+  1. `texto = oyente.escuchar()`.
+     - `except EOFError: raise`.
+     - `except Exception as e: mostrar(f"Error del micrófono: {e}")` y luego `raise EOFError from None` (conversar se despide).
+  2. Si `despierto`: `despierto = False` y `comando = (texto or "").strip()`.
+  3. Si no está despierto:
+     - Sin texto → `return ""`. Si no, `comando = quitar_palabra(texto, palabras)`.
+     - Si `comando is None` → `return ""` (no iba dirigido a Jarvis: no se muestra ni se envía).
+     - Si `comando == ""`:
+       - `despierto = True`
+       - `mostrar(f"tú (voz)> {texto.strip()}")`
+       - `mostrar("jarvis> " + RESPUESTA_ACTIVACION)`
+       - `decir_sin_fallar(hablante, RESPUESTA_ACTIVACION, mostrar)`
+       - `return ""`
+  4. Si `not comando` → `return ""`.
+  5. `mostrar(f"tú (voz)> {comando}")` y `return COMANDOS_VOZ.get(normalizar(comando), comando)`.
+
+  Como cada silencio (≤ 8 s) devuelve `""`, `conversar` vuelve a llamar a `avisar_vencidos`, y los recordatorios suenan casi en tiempo real.
+- `salida_por_voz` → `salida(texto)`:
+  - `mostrar(texto)` (en pantalla, el texto original).
+  - `hablado = limpiar_para_voz(texto.removeprefix("jarvis> "))`; si no queda vacío, `decir_sin_fallar(hablante, hablado, mostrar)`.
+- `confirmar_por_voz` → `confirmar(nombre, argumentos) -> bool`:
+  1. `mostrar(texto_confirmacion(nombre, argumentos).removesuffix("[s/N] ") + "[responde «sí» por voz]")`.
+  2. `try: hablante.decir(texto_confirmacion_hablado(nombre, argumentos)); respuesta = oyente.escuchar()`.
+     - `except (Exception, KeyboardInterrupt) as e: mostrar(f"(confirmación cancelada: {type(e).__name__})"); return False`.
+     - Si no se pudo leer en voz alta, **no se escucha** y cuenta como NO.
+  3. `mostrar(f"tú (voz)> {respuesta.strip() if respuesta else '(silencio)'}")`.
+  4. `return es_afirmativa(respuesta, palabras)`.
+- `piezas_de_voz` → `{"entrada": entrada_por_voz(...), "salida": salida_por_voz(hablante, mostrar), "confirmar": confirmar_por_voz(...), "fragmento": None}`.
+- `preparar(entorno, mostrar=print)`, en este orden:
+  1. `palabras = palabras_activacion(entorno)` y `umbral = umbral_de(entorno)`.
+  2. `try: import sounddevice as sd; sd.query_devices(kind="input")`.
+     - `except ImportError: raise ErrorVoz(FALTAN_DEPENDENCIAS) from None`.
+     - `except Exception as e: raise ErrorVoz(f"no encuentro un micrófono: {e}") from None`.
+  3. `try: transcribir = transcriptor_whisper(entorno.get("JARVIS_STT_MODELO") or MODELO_POR_DEFECTO, palabras[0])`.
+     - `except ImportError: raise ErrorVoz(FALTAN_DEPENDENCIAS) from None`.
+     - `except Exception as e: raise ErrorVoz(f"no pude cargar el modelo de voz a texto: {e}") from None`.
+  4. `mostrar(f"Voz activada: di «{palabras[0]}» y tu petición. Ctrl+C para salir.")`.
+  5. `return piezas_de_voz(OyenteLocal(transcribir, umbral=umbral), HablanteSAPI(), palabras, mostrar)`.
+
+  `# ponytail:` con un nombre de modelo (`base`), la primera vez faster-whisper lo descarga de Hugging Face; con una carpeta local, no usa la red.
+
+## tests/clientes_falsos.py (constructor)
+```python
+class OyenteFalso:
+    """Oyente simulado: devuelve cada texto (None = silencio); si es una excepción, la lanza; agotado → EOFError."""
+    def __init__(self, *textos): ...      # .pendientes = list(textos); .escuchas = 0
+    def escuchar(self): ...               # escuchas += 1; sin pendientes → raise EOFError; pop(0); BaseException → raise
+
+class HablanteFalso:
+    def __init__(self, falla: Exception | None = None): ...   # .dichos = []
+    def decir(self, texto): ...           # si falla → raise falla; si no, dichos.append(texto)
+```
+
+## jarvis/bucle.py (constructor; solo esto)
+En `conversar`: `if fragmento is not None and hasattr(cliente, "al_texto"):` (con el comentario `# sin fragmento (voz) no hay streaming: la respuesta llega entera a salida`). Nada más cambia.
+**tests/test_bucle.py**, un test nuevo, `test_sin_fragmento_no_transmite`. Un cliente con `al_texto = None` y `responder` que comprueba `self.al_texto is None` y devuelve `Respuesta(texto="hola")`. Con `conversar(cliente, {}, entrada=entradas("hola"), salida=impreso.append, fragmento=None)` → `impreso == ["jarvis> hola", "Hasta luego."]` y `cliente.al_texto is None`.
+
+## jarvis/__main__.py (constructor)
+```python
+from jarvis import voz
+
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    load_dotenv()
+    # ... config y aviso de claude-cli igual que ahora ...
+    piezas = {}
+    if voz.activada(argv, os.environ):
+        try:
+            piezas = voz.preparar(os.environ)
+        except voz.ErrorVoz as e:
+            print(f"Voz desactivada: {e} Sigo solo con texto.", file=sys.stderr)
+    conversar(crear_cliente(config), cargar_herramientas(), **piezas)
+    return 0
+```
+- `# ponytail:` los argumentos desconocidos se ignoran (la fase 6 añade `--ui`).
+- Sin voz, `conversar` recibe exactamente `(cliente, herramientas)`, y los dos tests actuales de test_main no cambian.
+
+**tests/test_main.py** (nuevos; con `load_dotenv` parcheado, `LLM_PROVIDER=claude-cli`, `crear_cliente` → `lambda c: "cliente"`, `cargar_herramientas` → `lambda: {}` y `conversar` capturando `(args, kwargs)`):
+1. `test_sin_voz_no_prepara_la_voz`: `voz.preparar` → prohibido. Con `main([])`: 0, `kwargs == {}`.
+2. `test_voz_sin_dependencias_sigue_con_texto(capsys)`: `monkeypatch.setitem(sys.modules, "faster_whisper", None)` (la guardia ya anula `sounddevice`). Con `main(["--voz"])`: 0, `kwargs == {}`, y en stderr están `"Voz desactivada: "`, `'pip install -e ".[voz]"'` y `"Sigo solo con texto."`.
+3. `test_voz_activa_pasa_las_piezas`: `voz.preparar` → `lambda entorno: {"fragmento": None, "marca": 1}`. Con `main(["--voz"])` → `kwargs == {"fragmento": None, "marca": 1}`. Lo mismo con `main([])` y `setenv("JARVIS_VOZ", "on")`. Con `JARVIS_VOZ=off` y `main([])` → `kwargs == {}`.
+
+## tests/test_voz.py (constructor)
+`from jarvis import bucle, recordatorios, voz`. Usa siempre `voz.X`, nunca `from jarvis.voz import ...`: el test 1 hace `reload` y crea clases nuevas. `AUDIO = Path(__file__).parent / "audio"`. `herramienta_enviar(ejecutadas)` = `SimpleNamespace(NOMBRE="correo_enviar", DESCRIPCION="x", ESQUEMA={"type": "object", "properties": {"para": {"type": "string"}, "cuerpo": {"type": "string"}}, "required": ["para", "cuerpo"]}, requiere_confirmacion=True, ejecutar=lambda **a: ejecutadas.append(a) or "enviado")`. `ARGS = {"para": "ana@example.com", "cuerpo": "Hola\nAna"}`. `HABLADO = "¿Ejecutar correo enviar? para: ana@example.com. cuerpo: Hola Ana. Di sí para confirmar; cualquier otra respuesta cancela."`
+1. `test_importar_no_carga_motores(monkeypatch)`: con `faster_whisper`, `sounddevice` y `numpy` a `None` en `sys.modules`, `importlib.reload(voz)` no falla.
+2. `test_normalizar`: los dos ejemplos de arriba.
+3. `test_palabras_y_activacion`:
+   - `palabras_activacion({}) == ["jarvis"]`, `({"JARVIS_PALABRA_ACTIVACION": " Jarvis , yarvis ,, "}) == ["Jarvis", "yarvis"]` y `({"JARVIS_PALABRA_ACTIVACION": " , "}) == ["jarvis"]`.
+   - `activada` en parametrize: `([], {})` → False, `(["--voz"], {})` → True, `([], {"JARVIS_VOZ": "ON"})` → True, `([], {"JARVIS_VOZ": "sí"})` → True, `([], {"JARVIS_VOZ": "off"})` → False, `(["--voz"], {"JARVIS_VOZ": "off"})` → True y `(["-q"], {})` → False.
+4. `test_umbral`: `{}` → 400 y `{"JARVIS_VOZ_UMBRAL": "800"}` → 800. `"0"`, `"40000"` y `"alto"` → ErrorVoz con `"JARVIS_VOZ_UMBRAL='alto' no es válido; usa un entero entre 1 y 32767."` (el texto, con su valor).
+5. `test_quitar_palabra` (parametrize):
+   - `("Jarvis, ¿qué hora es?", ["jarvis"])` → `"¿qué hora es?"`
+   - `("oye JARVIS qué tal", ["jarvis"])` → `"qué tal"`
+   - `("Jarvis.", ["jarvis"])` → `""`
+   - `("¿Qué hora es, Jarvis?", ["jarvis"])` → `""`
+   - `("hola a todos", ["jarvis"])` → None
+   - `("jarvisito ven", ["jarvis"])` → None
+   - `("Yarvis, apaga", ["jarvis", "yarvis"])` → `"apaga"`
+   - `("hola, oye Jarvis: pon música", ["oye jarvis"])` → `"pon música"`
+   - `("Jarvis ven", ["Járvis"])` → `"ven"`
+   - `(None, ["jarvis"])` y `("", ["jarvis"])` → None
+6. **`test_es_afirmativa`** (parametrize, con `palabras=["jarvis"]`):
+   - True: `"sí"`, `"Sí."`, `"¡Sí, confirmo!"`, `"Jarvis, sí"`, `"sí, sí"`, `"confirmo"` y `"SI"`.
+   - False: `None`, `""`, `"   "`, `"no"`, `"sí, pero no"`, `"no, sí"`, `"si quieres"`, `"claro"`, `"vale"`, `"yes"`, `"s"`, `"jarvis"`, `"sí, a las cinco"` y `"Sí. Bueno, no."`.
+7. `test_limpiar_para_voz`: las salidas exactas de arriba (una aserción por caso).
+8. `test_texto_confirmacion_hablado`: los dos ejemplos exactos, más un valor con `"\x1b"`, que sale escapado (`"\\x1b"` en el texto) y sin el carácter real.
+9. `test_bloques_de_wav`: `tono.wav` da 100 bloques de 960 bytes y `silencio.wav` da 33. Un WAV de 8000 Hz escrito en `tmp_path` → ValueError con `"el audio debe ser WAV mono de 16 bits a 16000 Hz: ocho.wav"`.
+10. `test_rms`: `rms(b"") == 0.0`, `rms(array("h", [3, -4] * 240).tobytes()) == pytest.approx(math.sqrt(12.5))`, el primer bloque de `silencio.wav` → 0.0 y el bloque 30 de `tono.wav` → `> 5000`.
+11. **`test_recortar_frase_con_audios`**:
+    - `tono.wav` → `len == 72 * 960`; `pcm[:7*960] == bytes(7*960)` (7 bloques de silencio previo) y `rms(pcm[7*960:8*960]) > 5000`.
+    - `silencio.wav`, `ruido_bajo.wav` y `chasquido.wav` → None.
+    - `tono.wav` con `maximo=20` → `20 * 960`, y con `silencio_fin=1000` → `87 * 960` (el audio acaba a mitad).
+    - `silencio.wav` con `espera=10` → None, consumiendo **exactamente 10** bloques (iterador que cuenta).
+12. `test_oyente_local_con_audios`:
+    - `OyenteLocal(transcribir, fuente=lambda: voz.bloques_de_wav(AUDIO / "tono.wav"))`, con un `transcribir` falso que guarda `len(pcm)` y devuelve `"  Jarvis, ¿qué hora es? "` → `escuchar() == "Jarvis, ¿qué hora es?"`, y lo guardado es `[72 * 960]`.
+    - Con `silencio.wav` → None y `transcribir` no se llama.
+    - Con un `transcribir` que devuelve `"  "` → None.
+13. **`test_cierra_el_microfono_tras_cada_escucha`**: la `fuente` es un generador que devuelve los bloques de `tono.wav` y en un `finally` marca `cerrado = True`. Tras `escuchar()`, `cerrado is True`.
+14. `test_wav_en_memoria`: `wave.open(voz.wav_en_memoria(b"\x00\x00" * 480))` → mono, 2 bytes, 16000 Hz y 480 frames.
+15. `test_transcriptor_whisper_con_modulo_falso(monkeypatch)`:
+    - `sys.modules["faster_whisper"]` es un `types.ModuleType` con una clase `WhisperModel` que guarda `(args, kwargs)` y tiene `transcribe(audio, **kw)`. `transcribe` guarda `audio.read()` y `kw`, y devuelve `([SimpleNamespace(text=" Jarvis,"), SimpleNamespace(text="  "), SimpleNamespace(text=" ¿qué hora es? ")], None)`.
+    - `t = voz.transcriptor_whisper("base", "jarvis")`, y entonces `t(b"\x00\x00" * 480) == "Jarvis, ¿qué hora es?"`.
+    - Constructor: `(("base",), {"device": "cpu", "compute_type": "int8"})`.
+    - kw: `{"language": "es", "beam_size": 1, "vad_filter": True, "condition_on_previous_text": False, "initial_prompt": "Jarvis."}`.
+    - Lo leído empieza por `b"RIFF"`.
+16. **`test_hablante_sapi_sin_inyeccion`**:
+    - `abrir` falso guarda `(args, kwargs)` y devuelve un `ProcesoFalso`. Su `stdin` es una subclase de `io.BytesIO` que en `close()` guarda `getvalue()` en `.escrito`; `poll()` pone y devuelve `returncode = 0`; `kill()` marca `matado`.
+    - `HablanteSAPI(abrir).decir("Hola, señor. ¿Qué tal?")`:
+      - `args[0] == voz.COMANDO_SAPI` y `COMANDO_SAPI[0] == "powershell.exe"`.
+      - `base64.b64decode(COMANDO_SAPI[-1]).decode("utf-16-le") == voz.SCRIPT_SAPI`, que contiene `"System.Speech"` y `"es-MX"`.
+      - Ningún elemento de `COMANDO_SAPI` contiene `"señor"`.
+      - `kwargs["stdin"] == subprocess.PIPE` y `"shell" not in kwargs`.
+      - `escrito == base64.b64encode("Hola, señor. ¿Qué tal?".encode("utf-8"))`.
+    - `decir("   ")` no llama a `abrir`.
+17. `test_hablante_sapi_errores`:
+    - Con `returncode` 1 → `pytest.raises(voz.ErrorVoz, match="código 1")`.
+    - Con `poll()` siempre None y `monkeypatch.setattr(voz.time, "sleep", <lanza KeyboardInterrupt>)` → `pytest.raises(KeyboardInterrupt)` y `matado is True`.
+    - **Sin `abrir`**, `HablanteSAPI().decir("hola")` → `pytest.raises(AssertionError, match="acción real")` (lo para la guardia: Popen se resuelve al llamar).
+18. `test_salida_por_voz`:
+    - `salida("jarvis> Son las **10:00**.")` → `vistos == ["jarvis> Son las **10:00**."]` y `dichos == ["Son las 10:00."]`.
+    - `salida("---")` se muestra y no se dice.
+    - Con `HablanteFalso(falla=voz.ErrorVoz("sin voz"))` → `vistos == ["jarvis> hola", "(no pude hablar: sin voz)"]`, sin excepción.
+19. **`test_confirmar_por_voz`** (parametrize con lo oído y el resultado):
+    - Ejecutan: `"sí"`, `"Sí, confirmo."` y `"Jarvis, sí"`.
+    - Cancelan: `None`, `"no"`, `"sí, pero no"`, `"claro"`, `RuntimeError("micro")`, `EOFError()` y `KeyboardInterrupt()`.
+
+    `confirmar = voz.confirmar_por_voz(OyenteFalso(oido), hablante, ["jarvis"], vistos.append)` y `r = bucle.ejecutar_llamada(LlamadaHerramienta("l1", "correo_enviar", ARGS), {"correo_enviar": herramienta_enviar(ejecutadas)}, confirmar)`:
+    - Si es un sí → `r == "enviado"` y `ejecutadas == [ARGS]`. Si no → `r == "El usuario canceló la acción."` y `ejecutadas == []`.
+    - Siempre: `hablante.dichos == [HABLADO]` y `vistos[0] == "¿Ejecutar correo_enviar?\n  para: ana@example.com\n  cuerpo: Hola\n    Ana\n[responde «sí» por voz]"`.
+    - Para `"sí"`, `vistos[1] == "tú (voz)> sí"`, y para `None`, `"tú (voz)> (silencio)"`.
+20. `test_confirmar_sin_poder_hablar_no_escucha_y_cancela`: con `HablanteFalso(falla=voz.ErrorVoz("x"))` y `OyenteFalso("sí")` → False, y `oyente.escuchas == 0` (nunca se oye un sí que no fue preguntado).
+21. **`test_conversar_por_voz_completo`**:
+    - `oyente = OyenteFalso("hola a todos", "Jarvis, ¿qué hora es?", None, "jarvis", "dime un chiste", "Jarvis, salir")`
+    - `cliente = ClienteFalso([Respuesta(texto="Son las **10:00**. Fuente: https://example.com/hora."), Respuesta(texto="Un chiste.")])`
+    - `bucle.conversar(cliente, {}, reloj=lambda: datetime(2026, 10, 20, 9, 0), **voz.piezas_de_voz(oyente, hablante, ["jarvis"], vistos.append))`
+
+    Resultado:
+    - `vistos == ["tú (voz)> ¿qué hora es?", "jarvis> Son las **10:00**. Fuente: https://example.com/hora.", "tú (voz)> jarvis", "jarvis> ¿Sí, señor?", "tú (voz)> dime un chiste", "jarvis> Un chiste.", "tú (voz)> salir", "Hasta luego."]`
+    - `hablante.dichos == ["Son las 10:00. Fuente: enlace.", "¿Sí, señor?", "Un chiste.", "Hasta luego."]`
+    - `[r["mensajes"][-1]["texto"] for r in cliente.recibidos] == ["¿qué hora es?", "dime un chiste"]`: "hola a todos" no salió del equipo.
+22. **`test_por_voz_sin_si_no_se_envia`**:
+    - Oyente: `OyenteFalso("Jarvis, manda el correo a Ana", "no")`.
+    - Cliente: `ClienteFalso([Respuesta(llamadas=[LlamadaHerramienta("l1", "correo_enviar", ARGS)]), Respuesta(texto="Cancelado, señor.")])`, con las herramientas `{"correo_enviar": herramienta_enviar(ejecutadas)}`.
+
+    Resultado:
+    - `ejecutadas == []` y `cliente.recibidos[1]["mensajes"][-1]["resultado"] == "El usuario canceló la acción."`.
+    - `hablante.dichos == [HABLADO, "Cancelado, señor.", "Hasta luego."]`.
+23. **`test_recordatorio_vencido_se_dice_en_voz_alta`**:
+    - `recordatorios.crear("tomar agua", datetime(2026, 10, 20, 10, 5), datetime(2026, 10, 20, 10, 0))`.
+    - `conversar(ClienteFalso([]), {}, reloj=lambda: datetime(2026, 10, 20, 10, 6), **piezas_de_voz(OyenteFalso(None), ...))`.
+    - El primer `None` devuelve `""` y la segunda vuelta acaba en EOF. Aun así, el aviso suena **una sola vez**: `dichos == ["Recordatorio (2026-10-20 10:05): tomar agua.", "Hasta luego."]`.
+24. `test_microfono_roto_se_despide`: `OyenteFalso(RuntimeError("sin micro"))` en conversar → `"Error del micrófono: sin micro"` en `vistos`, y `dichos[-1] == "Hasta luego."`.
+25. `test_preparar(monkeypatch)`:
+    - Con un `sounddevice` falso (`query_devices=lambda kind: {}`) y un `faster_whisper` falso en `sys.modules`, `preparar({}, vistos.append)`:
+      - devuelve un dict con las claves `{"entrada", "salida", "confirmar", "fragmento"}` y `fragmento is None`
+      - `vistos == ["Voz activada: di «jarvis» y tu petición. Ctrl+C para salir."]`
+      - no abre el micrófono: el `sounddevice` falso no tiene `RawInputStream`, así que cualquier intento fallaría (preparar no escucha; el valor por defecto de `fuente` se fija al definir la clase, por eso no sirve parchear `bloques_del_microfono`)
+    - Errores:
+      - Sin el falso de sounddevice (la guardia lo deja en None) → ErrorVoz `FALTAN_DEPENDENCIAS`.
+      - `query_devices` que lanza `ValueError("no hay")` → `"no encuentro un micrófono: no hay"`.
+      - `WhisperModel` que lanza `RuntimeError("falta model.bin")` → `"no pude cargar el modelo de voz a texto: falta model.bin"`.
+      - `JARVIS_VOZ_UMBRAL="x"` → el ErrorVoz del umbral.
+
+## tests/test_voz_real.py (constructor; opcional, se salta)
+```python
+faster_whisper = pytest.importorskip("faster_whisper")
+MODELO = os.environ.get("JARVIS_STT_MODELO", "")
+pytestmark = pytest.mark.skipif(not (MODELO and Path(MODELO).is_dir()),
+                                reason="pon JARVIS_STT_MODELO con la carpeta local de un modelo de faster-whisper")
+FRASES = sorted((Path(__file__).parent / "audio").glob("voz_*.wav"))
+```
+- El fixture `transcribir` (scope `module`) es `voz.transcriptor_whisper(MODELO, "jarvis")`.
+- `test_silencio_da_texto_vacio`: `transcribir(b"".join(voz.bloques_de_wav(AUDIO / "silencio.wav"))) == ""`.
+- `test_frase_real`:
+  - Parametrize sobre `FRASES`, o sobre un `pytest.param(None, marks=pytest.mark.skip(reason="sin voz_*.wav: python scripts/generar_audios_prueba.py --con-voz"))` si no hay ninguna.
+  - `oido = voz.OyenteLocal(transcribir, fuente=lambda: voz.bloques_de_wav(ruta)).escuchar()`.
+  - Las palabras de `normalizar(<.txt>)` ⊆ las de `normalizar(oido or "")`.
+  - `voz_si*` → `es_afirmativa(oido)` True; `voz_no*` → False.
+- Nunca descarga nada: con un nombre de modelo en lugar de una carpeta, se salta.
+
+## jarvis/README.md (ligero, al final)
+Sección **Voz (opcional)**:
+- Instalar: `pip install -e ".[voz]"`.
+- Activar: `python -m jarvis --voz`, o `JARVIS_VOZ=on` en `.env`.
+- Variables:
+  - `JARVIS_PALABRA_ACTIVACION`: `jarvis` por defecto; admite variantes con comas.
+  - `JARVIS_STT_MODELO`: `base` por defecto, o una carpeta local.
+  - `JARVIS_VOZ_UMBRAL`: 400 por defecto; súbelo si se activa con el ruido y bájalo si no te oye.
+- Cómo se habla:
+  - "Jarvis, …": la orden es lo que va después de la palabra.
+  - "Jarvis" a secas: responde "¿Sí, señor?" y espera.
+  - "Jarvis, salir" y "Jarvis, parte del día".
+- Confirmación: solo "sí" o "confirmo". Cualquier otra cosa, o el silencio, cancela.
+- Los recordatorios se dicen en voz alta.
+- Privacidad: el audio no se guarda ni sale del equipo, y lo dicho sin la palabra se descarta. Solo la orden va al modelo.
+- Limitaciones:
+  - No interrumpe mientras habla (usa Ctrl+C).
+  - Mientras transcribe no escucha.
+  - La voz SAPI suena robótica.
+- Si falta algo, Jarvis avisa y sigue con texto.
+- Pruebas opcionales con el modelo real (`tests/test_voz_real.py`).
+
+## Orden
+1. A la vez, sin pisarse archivos:
+   - **ligero:** `conftest.py` + `test_guardia.py`, el script, los 4 WAV, `test_audios.py` y `pyproject.toml`. Luego comprueba que la suite (221 + los nuevos) sigue en verde.
+   - **constructor:** la parte de texto de `voz.py` (tests 1–8) y los fakes de `clientes_falsos.py`.
+2. constructor: la parte de audio y `OyenteLocal` (tests 9–15; necesita los WAV del paso 1).
+3. constructor: `HablanteSAPI` (tests 16–17).
+4. constructor: `entrada`/`salida`/`confirmar`/`piezas` y el cambio de `bucle.py` con su test (tests 18–24 y test_bucle).
+5. constructor: `preparar` y `__main__.py` (test 25 y test_main), y `test_voz_real.py`.
+6. ligero: README.
+7. verificador, con salida literal y en la misma pasada:
+   - `.venv\Scripts\python -m pytest -q` (sin claves en el entorno) → exit 0; `test_voz_real.py` aparece como saltado.
+   - `.venv\Scripts\python -m pytest -q -rs tests/test_voz_real.py` (los motivos del salto).
+   - `.venv\Scripts\python -c "import sys, jarvis.voz, jarvis.__main__; print(sorted(m for m in ('faster_whisper', 'sounddevice', 'numpy', 'pyaudio') if m in sys.modules))"` → `[]`.
+   - `.venv\Scripts\python scripts\generar_audios_prueba.py` y después `git status --short tests/audio` → sin cambios (los WAV son reproducibles).
+   - `git grep -n -E "print\(|logging|shell=True" -- jarvis/voz.py` (vacío).
+   - `git grep -n -E "^\s*(import|from) (faster_whisper|sounddevice|numpy|pyaudio)" -- jarvis/` → solo líneas sangradas dentro de funciones (ninguna en la columna 0).
+   - `git diff --stat -- jarvis/personalidad.md jarvis/config.py jarvis/tools/ jarvis/llm/ jarvis/integrations/` (vacío).
+8. revisor: `git diff` y `git status` contra goals/06 (fase 5) y la decisión 005. Con revisión de seguridad:
+   - que confirmar por voz falle a NO en todos los casos (silencio, ambigüedad, errores, Ctrl+C) y que no escuche si no pudo preguntar.
+   - que el texto a hablar llegue a PowerShell solo en base64 por stdin, con el script constante y sin `shell=True`.
+   - que el audio nunca se escriba en disco y que el micrófono se cierre en cada escucha.
+   - que lo dicho sin la palabra de activación no llegue al modelo.
+   - que sin `--voz` el comportamiento sea idéntico al de antes.
+   - que ningún test pueda abrir el micrófono, el altavoz, procesos ni la red.
+
+## Criterios de aceptación
+- `pytest -q` sale con 0 sin claves, red, micrófono ni altavoz, y con los extras de voz **sin instalar**. Las pruebas con motores reales se saltan.
+- Sin `--voz` ni `JARVIS_VOZ=on`, `conversar` recibe exactamente `(cliente, herramientas)`. Los tests anteriores pasan sin tocarlos (salvo los añadidos).
+- Si con `--voz` faltan los extras, el micrófono o el modelo, Jarvis avisa por stderr y sigue con texto (exit 0).
+- Importar `jarvis.voz` y `jarvis.__main__` no carga `faster_whisper`, `sounddevice`, `numpy` ni `pyaudio`.
+- Pasan `test_es_afirmativa`, `test_confirmar_por_voz` y `test_por_voz_sin_si_no_se_envia`: solo "sí" o "confirmo" ejecutan, y el silencio, la ambigüedad, los errores o Ctrl+C cancelan.
+- Pasan `test_conversar_por_voz_completo` (palabra de activación, limpieza del texto y comandos de voz) y `test_recordatorio_vencido_se_dice_en_voz_alta`.
+- Los 4 WAV de `tests/audio/` son válidos, se reproducen byte a byte con el script y `recortar_frase` da exactamente las longitudes de los tests.
+- `voz.py` no tiene ningún `print`, `logging`, `shell=True` ni escritura de audio en disco. Cada atajo lleva su `ponytail:`. Siguen siendo 19 herramientas y `config.py` no cambia.
 
 ---
 

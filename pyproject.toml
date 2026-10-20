@@ -11,6 +11,7 @@ dependencies = ["anthropic", "openai", "python-dotenv"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+voz = ["faster-whisper", "sounddevice"]  # ponytail: sin versiones fijadas; fijarlas cuando algo se rompa
 
 [tool.setuptools]
 packages = ["jarvis", "jarvis.llm", "jarvis.tools", "jarvis.integrations"]

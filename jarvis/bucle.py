@@ -110,7 +110,8 @@ def conversar(cliente, herramientas: dict, entrada=input, salida=print,
               confirmar=confirmar_por_terminal, fragmento=imprimir_fragmento, reloj=datetime.now) -> None:
     historial: list[dict] = []  # ponytail: sin límite; recortar cuando crezca
     emitidos: list[str] = []  # fragmentos ya mostrados en el turno actual
-    if hasattr(cliente, "al_texto"):  # el cliente puede transmitir la respuesta según la genera
+    # sin fragmento (voz) no hay streaming: la respuesta llega entera a salida
+    if fragmento is not None and hasattr(cliente, "al_texto"):  # el cliente puede transmitir la respuesta según la genera
 
         def al_texto(trozo: str) -> None:
             if not emitidos:
